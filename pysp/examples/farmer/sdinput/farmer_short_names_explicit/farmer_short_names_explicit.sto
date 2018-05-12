@@ -1,0 +1,24 @@
+STOCH farmer_short_names_explicit
+BLOCKS DISCRETE REPLACE
+ BL BLOCK1 PERIOD2 0.33333333333333331
+    x13    c_u_x10_    -16
+    x14    c_u_x11_    -2
+    x12    c_u_x9_    -2.3999999999999999
+    x12    c_l_x6_    2.3999999999999999
+    x14    c_l_x8_    2
+    x13    c_l_x7_    16
+ BL BLOCK1 PERIOD2 0.33333333333333331
+    x12    c_u_x9_    -3
+    x13    c_u_x10_    -20
+    x13    c_l_x7_    20
+    x12    c_l_x6_    3
+    x14    c_u_x11_    -2.5
+    x14    c_l_x8_    2.5
+ BL BLOCK1 PERIOD2 0.33333333333333331
+    x12    c_u_x9_    -3.6000000000000001
+    x14    c_u_x11_    -3
+    x13    c_u_x10_    -24
+    x13    c_l_x7_    24
+    x14    c_l_x8_    3
+    x12    c_l_x6_    3.6000000000000001
+ENDATA

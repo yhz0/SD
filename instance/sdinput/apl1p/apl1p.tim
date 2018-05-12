@@ -1,0 +1,5 @@
+TIME     test
+PERIODS   LP
+    X0000001  ZFZF9999                 TIME1
+    Y0000011  F0000001                 TIME2
+ENDATA
