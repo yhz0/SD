@@ -5,8 +5,10 @@ Stochastic decomposition (SD) is a sequential sampling-based algorithm for two-s
 1. Higle, J. L. and Sen, S. (1994). Finite master programs in regularized stochastic decomposition. Mathematical Programming, 67(1):143–168.
 2. Sen, S. and Liu, Y. (2016). Mitigating uncertainty via compromise decisions in two-stage stochastic linear programming: Variance reduction. Operations Research, 64(6):1422–1437.
 
+Special thanks for Jason Mai and Yifan Liu for their efforts on the development of this code. 
+
 ### Support
-Please report bugs [here on GitHub.](https://github.com/USC3DLAB/SD/issues).
+Please report bugs [here on GitHub](https://github.com/USC3DLAB/SD/issues).
 
 ## Version information: 
 `v1.0`: Supports 2-SLPs with randomness in right-hand side and the technology matrix.
