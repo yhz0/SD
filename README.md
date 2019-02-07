@@ -25,16 +25,22 @@ The implementation of accepts stochastic programs described using the SMPS file 
 For more information about the SMPS file format [here](https://doi.org/10.1137/1.9780898718799.ch2)
 
 ## Installation
+Note: Only support unix-like systems such as OS X and Ubuntu have been tested.
+#### Prerequisite: 
+  * CPLEX should be available on your machine. Trial version is available [here](http://www-01.ibm.com/software/commerce/optimization/cplex-optimizer/).
+  * Git, if you want to directly use the commands below.
 
-Prerequisite: CPLEX should be available on your machine. (If not, follow this link to get a trial version: [here](http://www-01.ibm.com/software/commerce/optimization/cplex-optimizer/).
+#### Steps
+  1. Download the SD source codes.
+    * `git clone https://github.com/USC3DLAB/SD`
+  2. Edit the makefile in SD/src folder to reflect the CPLEX installation directories on you computer.
+    * `CPLEXDIR = cplex_installation_folder/cplex`
+  3. Compile the code
+    * `cd sd/src && sudo make`
+  4. `cd ../instance && ln -s ../src/sd`
 
-1). Download and compile SD with the following command. Simply copy and paste the following to your terminal (only support unix-like systems such as OS X and Ubuntu):
 
-`git clone https://github.com/USC3DLAB/SD && cd sd/src && sudo make && cd ../instance && ln -s ../src/sd`
-
-(note: In order to locate the path to cplex header and library file, "sudo make" is required as you can see. You can check the content of the makefile to verify this.)
-
-2). Then excute sd by typing the following into your terminal:
+2. Then excute sd by typing the following into your terminal:
 
 `./sd`
 
