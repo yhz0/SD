@@ -1,1116 +1,768 @@
-/***********************************************************************\
-**
- ** prob.c
- **
- ** This file contains the routines needed to solve a stochastic LP 
- ** using SD, given the original combined problem (in CPLEX format).
- **
- **    solve_SD()
- **    new_prob()
- **    free_prob()
- **    free_one_prob()
- **
- ** History:
- **   16 Mar 1992 - <Jason Mai> - created.
- **   22 Mar 1992 - <Jason Mai> - debugged.
- **   Should NOT be used without the consent of either Suvrajeet Sen or
- **   Jason Mai
- **
- \***********************************************************************/
+/*
+ * prob.c
+ *
+ *  Created on: Sep 30, 2015
+ *      Author: Harsha Gangammanavar
+ */
 
-#include "prob.h"
-#include "cell.h"
-#include "soln.h"
-#include "supomega.h"
-#include "utility.h"
-#include "testout.h"
-#include "log.h"
-#include "solver.h"
-#include "sdglobal.h"
-#include <string.h>
+#include <utils.h>
+#include <solver.h>
+#include <smps.h>
+#include <prob.h>
 
-/***********************************************************************\
-** This function solves an LP using stochastic decomposition.  The
- ** original problem is separated into a master problem and a subproblem,
- ** and also into cells for parallel processing.  Each cell is then
- ** successively solved and married until there is but one cell remaining,
- ** and it is solved.
- \***********************************************************************/
-void solve_SD(sdglobal_type* sd_global, one_problem *original, vector x_k,
-		int num_rv, int num_cipher, int row, int col, char *fname, int batch_id)
-{
-	prob_type *prob;
-	cell_type *cell;
+/* Decomposes the problem _orig_ into subproblems as well as decomposes the stochastic information _stoc_ into stage stochastic information. The decomposition
+ * is carried out using information specified in _tim_. The function also stores stage lower bound information provided in _Lb_. It returns an array of
+ * probType structures, each probType corresponds to a particular stage */
+probType **newProb(oneProblem *orig, stocType *stoc, timeType *tim, vector lb, double TOLERANCE) {
+	probType **prob;
+	char	 *q;
+	int		 i, k, m, t, rOffset = 0, cOffset = 0;
 
-#ifdef TRACE
-	printf("Inside solve_SD\n");
-#endif
+	/* allocate memory to elements of probType */
+	if ( !(prob = (probType **) arr_alloc(tim->numStages, probType *)) )
+		errMsg("allocation", "newProb", "prob", 0);
 
-	prob = new_prob(sd_global, original, num_rv, num_cipher, row, col);
-	prob->current_batch_id = batch_id;
-	init_param(sd_global, prob);
-	cell = new_cell(sd_global, prob, 0);
-#ifdef RUN
-	if (batch_id == 0)
-	{
-		print_num(sd_global, prob->num);
-	}
-#endif
+	/* allocate memory to members of probType for stagewise subProblems, and allocate values to static fields*/
+	for ( t = 0; t < tim->numStages; t++ ) {
+		if ( !(prob[t] = (probType *) mem_malloc(sizeof(probType))) )
+			errMsg("allocation", "newProb", "prob[t]", 0);
+		if ( !(prob[t]->name = (string) arr_alloc(NAMESIZE, char)) )
+			errMsg("allocation", "newProb", "stage name", 0);
+		if( !(prob[t]->sp = (oneProblem *) mem_malloc (sizeof(oneProblem))))
+			errMsg("allocation", "newProb", "stage problem", 0);
+		prob[t]->sp->lp = NULL; prob[t]->lb = 0.0;
 
-#ifdef SAVE
-	print_contents(prob->master, "master.out");
-	print_contents(prob->subprob, "subprob.out");
-#endif
-	printf("\n\n-------------------- Replication No.%d --------------------\n",
-			batch_id);
-	solve_cell(sd_global, cell, prob, x_k, fname);
-	print_contents(prob->master, "final_master.lp");
+		if (  !(prob[t]->dBar = (sparseVector *) mem_malloc(sizeof(sparseVector))) )
+			errMsg("allocation", "newProb", "stage problem cost coefficients", 0);
+		if ( !(prob[t]->dBar->col = (intvec) arr_alloc(orig->mac+1, int)) )
+			errMsg("allocation", "newProb", "stage problem cost coefficients columns", 0);
+		if ( !(prob[t]->dBar->val = (vector) arr_alloc(orig->mac+1, double)) )
+			errMsg("allocation", "newProb", "stage problem cost coefficients values", 0);
+		prob[t]->dBar->cnt = 0;
 
-	free_cell(cell, prob->num);
-	free_prob(sd_global, prob);
-}
+		if ( !(prob[t]->bBar = (sparseVector *) mem_malloc(sizeof(sparseVector))) )
+			errMsg("allocation", "newProb", "stage problem right hand side", 0);
+		if ( !(prob[t]->bBar->col = (intvec) arr_alloc(orig->mar+1, int)) )
+			errMsg("allocation", "newProb", "stage problem right-hand rows", 0);
+		if ( !(prob[t]->bBar->val = (vector) arr_alloc(orig->mar+1, double)) )
+			errMsg("allocation", "newProb", "stage problem right-hand values", 0);
+		prob[t]->bBar->cnt = 0;
 
-/***********************************************************************\
-** This function allocates memory for the fields of the problem
- ** data structure, separates the original problem into two stages,
- ** and initializes the rest of the fields in the problem.
- \***********************************************************************/
-prob_type *new_prob(sdglobal_type* sd_global, one_problem *original, int num_rv,
-		int num_cipher, int row, int col)
-{
-	prob_type *p;
-	int r, c;
+		strcpy(prob[t]->name, tim->stgNames[t]);
 
-#ifdef TRACE
-	printf("Inside new_prob\n");
-#endif
+		if ( t < tim->numStages - 1 ) {
+			prob[t]->sp->mar = prob[t]->sp->marsz = tim->row[t+1] - tim->row[t];
+			prob[t]->sp->mac = prob[t]->sp->macsz = tim->col[t+1] - tim->col[t];
+			prob[t]->sp->rstorsz = orig->rname[tim->row[t+1]] - orig->rname[tim->row[t]];
+			prob[t]->sp->cstorsz = orig->cname[tim->col[t+1]] - orig->cname[tim->col[t]];
+			rOffset += prob[t]->sp->rstorsz;
+			cOffset += prob[t]->sp->cstorsz;
+		}
+		else {
+			prob[t]->sp->mar = prob[t]->sp->marsz = orig->mar - tim->row[t];
+			prob[t]->sp->mac = prob[t]->sp->macsz = orig->mac - tim->col[t];
+			prob[t]->sp->rstorsz = orig->rstorsz - rOffset;
+			prob[t]->sp->cstorsz = orig->cstorsz - cOffset;
+		}
+		prob[t]->sp->numInt = 0;
+		prob[t]->sp->numBin = 0;
+		prob[t]->sp->matsz = 0;
+		prob[t]->sp->numnz = 0;
+		prob[t]->sp->objsen = orig->objsen;
+		prob[t]->sp->type = PROB_LP;
 
-	if (!(p = (prob_type *) mem_malloc (sizeof(prob_type))))
-		err_msg("Allocation", "new_prob", "prob");
+		/* stage oneProblem */
+		if(!(prob[t]->sp->name = (string) arr_alloc(NAMESIZE, char)))
+			errMsg("allocation", "newProb", "stage problem name", 0);
+		if(!(prob[t]->sp->objname = (string) arr_alloc(NAMESIZE, char)))
+			errMsg("allocation", "newProb", "stage problem objname", 0);
+		if(!(prob[t]->sp->objx = (vector) arr_alloc(prob[t]->sp->macsz, double)))
+			errMsg("allocation", "newProb", "stage problem objx", 0);
+		if(!(prob[t]->sp->bdl = (vector) arr_alloc(prob[t]->sp->macsz, double)))
+			errMsg("allocation", "newProb", "stage problem bdl", 0);
+		if(!(prob[t]->sp->bdu = (vector) arr_alloc(prob[t]->sp->macsz, double)))
+			errMsg("allocation", "newProb", "stage problem bdu", 0);
+		if(!(prob[t]->sp->ctype = (string) arr_alloc(prob[t]->sp->macsz, char)))
+			errMsg("allocation", "newProb", "stage problem column type", 0);
+		if(!(prob[t]->sp->rhsx = (vector) arr_alloc(prob[t]->sp->marsz, double)))
+			errMsg("allocation", "newProb", "stage problem rhsx", 0);
+		if(!(prob[t]->sp->senx = (string) arr_alloc(prob[t]->sp->marsz, char)))
+			errMsg("allocation", "newProb", "stage problem senx", 0);
+		if(!(prob[t]->sp->matbeg = (intvec) arr_alloc(prob[t]->sp->macsz, int)))
+			errMsg("allocation", "newProb", "stage problem matbeg", 0);
+		if(!(prob[t]->sp->matcnt = (intvec) arr_alloc(prob[t]->sp->macsz, int)))
+			errMsg("allocation", "newProb", "stage problem matcnt", 0);
+		if(!(prob[t]->sp->cname = (string *) arr_alloc(prob[t]->sp->macsz, string)))
+			errMsg("allocation", "newProb", "stage problem cname", 0);
+		if(!(prob[t]->sp->cstore = (string) arr_alloc(prob[t]->sp->cstorsz, char)))
+			errMsg("allocation", "newProb", "stage problem cstore", 0);
+		if(!(prob[t]->sp->rname = (string *) arr_alloc(prob[t]->sp->marsz, string)))
+			errMsg("allocation", "newProb", "stage problem rname", 0);
+		if(!(prob[t]->sp->rstore = (string) arr_alloc(prob[t]->sp->rstorsz, char)))
+			errMsg("allocation", "newProb", "stage problem rstore", 0);
+		if(!(prob[t]->sp->matval = (vector) arr_alloc(orig->matsz, double)))
+			errMsg("allocation", "newProb", "stage problem matval", 0);
+		if(!(prob[t]->sp->matind = (intvec) arr_alloc(orig->matsz, int)))
+			errMsg("allocation", "newProb", "stage problem matind", 0);
+		strcpy(prob[t]->sp->objname, orig->objname);
+		sprintf(prob[t]->sp->name, "%s_%d", orig->name, t);
 
-	if (!(p->master = (one_problem *) mem_malloc (sizeof(one_problem))))
-		err_msg("Allocation", "new_prob", "prob->master");
+		/* stage transfer matrix */
+		if ( t == 0 )
+			prob[t]->Cbar = NULL;
+		else {
+			if ( !(prob[t]->Cbar = (sparseMatrix *) mem_malloc(sizeof(sparseMatrix))) )
+				errMsg("allocation", "newProb", "stage transfer matrix", 0);
+			if(!(prob[t]->Cbar->row = (intvec) arr_alloc(orig->matsz + 1, int)))
+				errMsg("allocation", "newProb", "transfer matrix rows", 0);
+			if(!(prob[t]->Cbar->col = (intvec) arr_alloc(orig->matsz + 1, int)))
+				errMsg("allocation", "newProb", "transfer matrix columns", 0);
+			if(!(prob[t]->Cbar->val = (vector) arr_alloc(orig->matsz + 1, double)))
+				errMsg("allocation", "newProb", "transfer matrix values", 0);
+			prob[t]->Cbar->cnt = 0;
+		}
 
-	if (!(p->subprob = (one_problem *) mem_malloc (sizeof(one_problem))))
-		err_msg("Allocation", "new_prob", "prob->subprob");
+		/* TODO (HG): stage dynamics: include dynamics to the model */
+		if ( t == 0) {
+			prob[t]->Abar = NULL;
+			prob[t]->Bbar = NULL;
+			prob[t]->aBar = NULL;
+			prob[t]->cBar = NULL;
+		}
+		else {
+			prob[t]->Abar = NULL;
+			prob[t]->Bbar = NULL;
+			prob[t]->aBar = NULL;
+			prob[t]->cBar = NULL;
+		}
 
-	if (!(p->Rbar = (sparse_vect *) mem_malloc (sizeof(sparse_vect))))
-		err_msg("Allocation", "new_prob", "prob->Rbar");
-
-	if (!(p->Tbar = (sparse_matrix *) mem_malloc (sizeof(sparse_matrix))))
-		err_msg("Allocation", "new_prob", "prob->Tbar");
-
-	/* In the regularized QP method, we need master's A matrix too. zl */
-	if (sd_global->config.MASTER_TYPE == SDQP)
-	{
-		if (!(p->A = (sparse_matrix *) mem_malloc (sizeof(sparse_matrix))))
-			err_msg("Allocation", "new_prob", "prob->A");
-	}
-
-	if (!(p->coord = (coord_type *) mem_malloc (sizeof(coord_type))))
-		err_msg("Allocation", "new_prob", "prob->coord");
-
-	if (!(p->num = (num_type *) mem_malloc (sizeof(num_type))))
-		err_msg("Allocation", "new_prob", "prob->num");
-
-	p->tau = sd_global->config.TAU;
-	p->num->iter = sd_global->config.MAX_ITER;
-	p->num->rv = num_rv;
-	p->num->cipher = num_cipher;
-	p->eval_seed = sd_global->config.EVAL_SEED1;
-
-	/* 
-	 ** Obtain the master and subproblem from the original LP.  This will
-	 ** initialize num, Rbar, Tbar, and c, as well as master and subprob.
-	 */
-	decompose(sd_global, original, p, row, col);
-
-	/* 
-	 ** Initialize the coord structure according to the locations
-	 ** of the random variables in omega.  Also initialize some
-	 ** some fields of num, having to do with random rows and columns.
-	 */
-	if (!(p->coord->omega_col = arr_alloc(num_rv+1, int)))
-		err_msg("Allocation", "new_prob", "p->coord->omega_col");
-	p->coord->omega_col[0] = get_omega_col(sd_global, p->coord->omega_col + 1);
-
-	if (!(p->coord->omega_row = arr_alloc(num_rv+1, int)))
-		err_msg("Allocation", "new_prob", "p->coord->omega_row");
-	p->coord->omega_row[0] = get_omega_row(sd_global, p->coord->omega_row + 1);
-
-	/*
-	 ** Subtract _row_ from each of the random elements' col coordinates
-	 ** so that they begin at zero.  Then add one to both row and col coordinates
-	 ** to obtain 1-based indices.  Also count the number of random variables
-	 ** which occur in R and T, based on the column coordinate of each rv.
-     ** Extension added by Yifan: besides R and T, count the number of random
-     ** variables which occur in g and W, based on the row cordinate of each
-     ** rv.
-	 */
-    /* modified by Yifan 2013.10.14 */
-	for (r = 1; r <= num_rv; r++)
-        if (p->coord->omega_row[r] != -1) {
-            p->coord->omega_row[r] += (1 - row);
-        }
-    /* modified by Yifan 2013.10.14 */
-	for (c = 1; c <= num_rv; c++)
-		if (++p->coord->omega_col[c])
-        {   if (p->coord->omega_col[c] <= col) // This should be "less and equal than" to take care of the last column of first stage decisions.
-                ++p->num->rv_T;
-            else if (++p->coord->omega_row[c])
-                ++p->num->rv_W;
-            else
-                ++p->num->rv_g;
-        }
-		else
-			++p->num->rv_R;
-
-    /* modified by Yifan 2013.10.14 Since omega_col and omega_row all shifted up 
-     by one. The mast_col used in find_rows and find_cols will be increased by one*/
-	p->coord->delta_col = find_cols(num_rv, &p->num->rv_cols,
-			p->coord->omega_col, col+1);
-	p->coord->sigma_col = find_cols(p->Tbar->cnt, &p->num->nz_cols,
-			p->Tbar->col, col+1);
-	p->coord->lambda_row = find_rows(num_rv, &p->num->rv_rows,
-			p->coord->omega_row, p->coord->omega_col, col+1);
-
-	return p;
-}
-
-/***********************************************************************\
-** This function frees the fields of the problem data structure.
- ** Note that it *does* free the arrays and other data associated with
- ** each of the fields.  Everything goes!
- \***********************************************************************/
-void free_prob(sdglobal_type* sd_global, prob_type *p)
-{
-
-#ifdef TRACE
-	printf("Inside free_prob\n");
-#endif
-
-	/* Free CPLEX data from both stages */
-	free_one_prob(p->master);
-	free_one_prob(p->subprob);
-
-	/* Free arrays inside coord structure, then free it. */
-	mem_free(p->coord->omega_row);
-	mem_free(p->coord->omega_col);
-	mem_free(p->coord->delta_col);
-	mem_free(p->coord->lambda_row);
-	mem_free(p->coord->sigma_col);
-	mem_free(p->coord);
-
-	/* Free the sparse vecotrs and matrices */
-	mem_free(p->Tbar->row);
-	mem_free(p->Tbar->col);
-	mem_free(p->Tbar->val);
-	mem_free(p->Tbar);
-	mem_free(p->Rbar->row);
-	mem_free(p->Rbar->val);
-	mem_free(p->Rbar);
-
-	/* In regularized QP method, we also need to free A matrix. zl */
-	if (sd_global->config.MASTER_TYPE == SDQP)
-	{
-		mem_free(p->A->row);
-		mem_free(p->A->col);
-		mem_free(p->A->val);
-		mem_free(p->A);
+		/* Stage recourse matrix: Dbar is used to setup the QP in the forward pass. Since the QP is used only for non-terminal
+		 * stages, Dbar for terminal stage is set to NULL */
+		if ( t == tim->numStages-1 )
+			prob[t]->Dbar = NULL;
+		else {
+			if ( !(prob[t]->Dbar = (sparseMatrix *) mem_malloc(sizeof(sparseMatrix))) )
+				errMsg("allocation", "newProb", "stage constraint matrix", 0);
+			if(!(prob[t]->Dbar->row = (intvec) arr_alloc(orig->matsz+1, int)))
+				errMsg("allocation", "newProb", "stage constraint matrix rows", 0);
+			if(!(prob[t]->Dbar->col = (intvec) arr_alloc(orig->matsz+1, int)))
+				errMsg("allocation", "newProb", "stage constraint matrix columns", 0);
+			if(!(prob[t]->Dbar->val = (vector) arr_alloc(orig->matsz+1, double)))
+				errMsg("allocation", "newProb", "stage constraint matrix values", 0);
+			prob[t]->Dbar->cnt = 0;
+		}
 	}
 
-	mem_free(p->num);
-	mem_free(p->c);
-	mem_free(p);
-}
+	for ( t = 0; t < tim->numStages-1; t++ ) {
+		/* lower bound on cost-to-go function */
+		if ( lb != NULL )
+			prob[t]->lb = lb[t];
 
-/***********************************************************************\
-** This function frees all non-NULL the arrays in a one_problem 
- ** structure, which is used by CPLEX to solve problems.  It is assumed
- ** that the problem has already been unloaded!  Also, if arrays were left 
- ** un-initialized, there will be problems!
- **
- ** Move this into solver.c ???
- \***********************************************************************/
-void free_one_prob(one_problem *p)
-{
+		/* copy column names of non-terminal stage*/
+		m = 0;
+		for ( q = orig->cname[tim->col[t]]; q < orig->cname[tim->col[t+1]]; q++ )
+			prob[t]->sp->cstore[m++] = *q;
 
-#ifdef TRACE
-	printf("Inside free_one_prob\n");
-#endif
-
-	if (p)
-	{
-		if (p->name)
-			mem_free(p->name);
-		if (p->objx)
-			mem_free(p->objx);
-		if (p->rhsx)
-			mem_free(p->rhsx);
-		if (p->senx)
-			mem_free(p->senx);
-		if (p->rngcol)
-			mem_free(p->rngcol);
-		if (p->nrowind)
-			mem_free(p->nrowind);
-		if (p->matbeg)
-			mem_free(p->matbeg);
-		if (p->matcnt)
-			mem_free(p->matcnt);
-		if (p->matind)
-			mem_free(p->matind);
-		if (p->matval)
-			mem_free(p->matval);
-		if (p->bdl)
-			mem_free(p->bdl);
-		if (p->bdu)
-			mem_free(p->bdu);
-		if (p->etype)
-			mem_free(p->etype);
-		if (p->enzbeg)
-			mem_free(p->enzbeg);
-		if (p->enzcnt)
-			mem_free(p->enzcnt);
-		if (p->enzind)
-			mem_free(p->enzind);
-		if (p->enzval)
-			mem_free(p->enzval);
-		if (p->dataname)
-			mem_free(p->dataname);
-		if (p->objname)
-			mem_free(p->objname);
-		if (p->rhsname)
-			mem_free(p->rhsname);
-		if (p->rngname)
-			mem_free(p->rngname);
-		if (p->bndname)
-			mem_free(p->bndname);
-		if (p->cname)
-			mem_free(p->cname);
-		if (p->cstore)
-			mem_free(p->cstore);
-		if (p->rname)
-			mem_free(p->rname);
-		if (p->rstore)
-			mem_free(p->rstore);
-		if (p->ename)
-			mem_free(p->ename);
-		if (p->estore)
-			mem_free(p->estore);
-		/*
-		 printf("zl free 3\n");
-		 */
-		mem_free(p);
-	}
-}
-
-void init_param(sdglobal_type* sd_global, prob_type *p)
-{
-	int multiplier;
-	if (sd_global->config.MIN_ITER <= 0)
-	{
-		/* Min iteration number = 30 x (# of random variabls) + 3 x (# of first stage variables + 3)*/
-		if (p->num->rv < 5)
-			multiplier = 30;
-		else if (p->num->rv < 10)
-			multiplier = 20;
-		else
-			multiplier = 10;
-
-		sd_global->config.MIN_ITER = multiplier * p->num->rv
-				+ 3 * (p->num->mast_cols + 3);
-	}
-
-	if (sd_global->config.PI_EVAL_START <= 0)
-	{
-		sd_global->config.PI_EVAL_START =
-				max(1, sd_global->config.MIN_ITER - sd_global->config.SCAN_LEN);
-	}
-
-}
-
-/***********************************************************************\
-** This function separates a single CPLEX LP into two stages, based on
- ** a (row,column) breakpoint supplied by the caller.  Elements of
- ** the cost vector less than _col_ become costs for the master
- ** while those greater become part of the subproblem.  Elements
- ** in the constraint matrix which are "north west" of _row_ and
- ** _col_ become the constraint matrix of the master program,
- ** while those "south east" of the breakpoint become the constraint
- ** matrix of the subproblem.  There should be no elements "north east"
- ** of the breakpoint.  Elements "south west" of the breakpoint are
- ** considered the T (technology) matrix.  Finally, right hand side
- ** elements above _row_ are for the master, and those below _row_
- ** form the R vector in the subproblem.
- **
- ** cost:                    c  |   g
- **                        -----+-------
- ** constraints:          [  A  |  NULL ] =  b
- **                        -----x------- - - - -
- **                       [  T  |   W   ] =  R
- **
- ** _row_ and _col_ represent the first row and column of the subproblem.
- **
- ** In addition to these elements, the master problem is expanded to
- ** include an extra column (the "eta" column) which will be used in
- ** all of the cut constraints.  It is also allocated with enough
- ** room to hold the maximum number of cuts allowed.
- **
- ** This function should probably be in solver.c, since it is so
- ** dependent upon the solver being used.
- **
- \***********************************************************************/
-int decompose(sdglobal_type* sd_global, one_problem *orig, prob_type *p,
-		int row, int col)
-{
-	char *q;
-	int c, idx, r, i;
-	sd_long m_offset, s_offset; /* modified by Yifan to avoid memory leaks July 26 2011 */
-	one_problem *m, *s;
-	int status;
-
-#ifdef TRACE
-	printf("Inside decompose\n");
-#endif
-
-	m = p->master;
-	s = p->subprob;
-
-	/* Initialize unused fields in master and subproblem CPLEX data. */
-	m->mae = 0;
-	s->mae = 0;
-	m->maesz = 0;
-	s->maesz = 0;
-	m->enzsz = 0;
-	s->enzsz = 0;
-	m->estorsz = 0;
-	s->estorsz = 0;
-	m->rngcol = NULL;
-	s->rngcol = NULL;
-	m->nrowind = NULL;
-	s->nrowind = NULL;
-	m->etype = NULL;
-	s->etype = NULL;
-	m->ename = NULL;
-	s->ename = NULL;
-	m->estore = NULL;
-	s->estore = NULL;
-	m->enzbeg = NULL;
-	s->enzbeg = NULL;
-	m->enzcnt = NULL;
-	s->enzcnt = NULL;
-	m->enzind = NULL;
-	s->enzind = NULL;
-	m->enzval = NULL;
-	s->enzval = NULL;
-	m->dataname = NULL;
-	s->dataname = NULL;
-	m->rhsname = NULL;
-	s->rhsname = NULL;
-	m->rngname = NULL;
-	s->rngname = NULL;
-	m->bndname = NULL;
-	s->bndname = NULL;
-
-	/* Initialize dimensions of each stage based on original data. */
-	m->matsz = s->matsz = 0;
-	m->mar = m->marsz = row;
-	m->mac = m->macsz = col;
-	s->mac = s->macsz = orig->mac - col;
-	s->mar = s->marsz = orig->mar - row;
-	m->cstorsz = (unsigned int) (orig->cname[col] - orig->cname[0]);
-	s->cstorsz = orig->cstorsz - m->cstorsz;
-	m->rstorsz = (unsigned int) (orig->rname[row] - orig->rname[0]);
-	s->rstorsz = orig->rstorsz - m->rstorsz;
-	m->objsen = s->objsen = orig->objsen;
-
-	/*
-	 printf("zl m: mar = %d, mac = %d, cstorsz = %d, rstorsz = %d, objsen = %d\n",
-	 m->mar, m->mac, m->cstorsz, m->rstorsz, m->objsen);
-	 printf("zl s: mar = %d, mac = %d, cstorsz = %d, rstorsz = %d, objsen = %d\n",
-	 s->mar, s->mac, s->cstorsz, s->rstorsz, s->objsen);
-	 */
-
-	p->Tbar->cnt = 0;
-	p->Rbar->cnt = 0;
-	p->num->rv_R = 0;
-	p->num->rv_T = 0;
-    p->num->rv_g = 0;   /* modified by Yifan 2013.10.14 */
-    p->num->rv_W = 0;   /* modified by Yifan 2013.10.14 */
-	p->num->mast_rows = row;
-	p->num->mast_cols = col;
-	p->num->sub_rows = s->mar;
-	p->num->sub_cols = s->mac;
-	if (sd_global->config.MASTER_TYPE == SDQP)
-		p->A->cnt = 0; /* Master's A matrix. zl */
-
-	/* sd_global->config.MASTER_TYPE indicates whether we are solving the master problem
-	 using basic LP method or regularized QP method. If QP, then we only need to     keep m->mac+3 cuts. zl */
-
-	if (sd_global->config.MASTER_TYPE == SDLP)
-		p->num->max_cuts = sd_global->config.CUT_MULT * MAX_CUTS(m->mac);
-	else
-	{
-		sd_global->config.CUT_MULT = 1;
-		p->num->max_cuts = sd_global->config.CUT_MULT * m->mac + 3;
-	}
-	/*
-	 fprintf(g_FilePointer,
-	 "sd_global->config.CUT_MULT = %d, m->mac = %d, p->num->max_cuts = %d. \n\n",
-	 sd_global->config.CUT_MULT, m->mac, p->num->max_cuts);
-	 */
-
-#ifdef DEBUG
-	printf("p->num->max_cuts = %d \n\n", p->num->max_cuts);
-#endif
-
-	/*
-	 ** Make initial allocations of maximum foreseeable size
-	 ** for all special data in the prob_type structure.
-	 ** Worst case scenario: entire problem is subproblem.
-	 ** Recall that Tbar, Rbar, and c will require 1-norms.
-	 */
-	if (!(p->Tbar->row = arr_alloc(orig->matsz+1, int)))
-		err_msg("Allocation", "decompose", "Tbar->row");
-	if (!(p->Tbar->col = arr_alloc(orig->matsz+1, int)))
-		err_msg("Allocation", "decompose", "Tbar->col");
-	if (!(p->Tbar->val = arr_alloc(orig->matsz+1, double)))
-		err_msg("Allocation", "decompose", "Tbar->val");
-	if (!(p->Rbar->row = arr_alloc(orig->marsz+1, int)))
-		err_msg("Allocation", "decompose", "Rbar->row");
-	if (!(p->Rbar->val = arr_alloc(orig->marsz+1, double)))
-		err_msg("Allocation", "decompose", "Rbar->val");
-	if (!(p->c = arr_alloc(orig->macsz+1, double)))
-		err_msg("Allocation", "decompose", "p->c");
-
-	/*
-	 ** In the case we are using regularized QP method, we also need to make
-	 ** the initial allocation of maximum foreseeable size for A matrix.
-	 ** Worst case scenario: entire problem is master problem.  zl
-	 */
-	if (sd_global->config.MASTER_TYPE == SDQP)
-	{
-		if (!(p->A->row = arr_alloc(orig->matsz+1, int)))
-			err_msg("Allocation", "decompose", "A->row");
-		if (!(p->A->col = arr_alloc(orig->matsz+1, int)))
-			err_msg("Allocation", "decompose", "A->col");
-		if (!(p->A->val = arr_alloc(orig->matsz+1, double)))
-			err_msg("Allocaiton", "decompose", "A->val");
-	}
-
-	/*
-	 ** Make initial allocations of known sizes (based on row
-	 ** and col) for master and subproblem CPLEX data.
-	 */
-	if (!(m->name = arr_alloc(NAME_SIZE, char)))
-		err_msg("Allocation", "decompose", "m->name");
-	if (!(s->name = arr_alloc(NAME_SIZE, char)))
-		err_msg("Allocation", "decompose", "s->name");
-	if (!(m->objname = arr_alloc(NAME_SIZE, char)))
-		err_msg("Allocation", "decompose", "m->objname");
-	if (!(s->objname = arr_alloc(NAME_SIZE, char)))
-		err_msg("Allocation", "decompose", "s->objname");
-	if (!(m->objx = arr_alloc(m->macsz, double)))
-		err_msg("Allocation", "decompose", "m->objx");
-	if (!(s->objx = arr_alloc(s->macsz, double)))
-		err_msg("Allocation", "decompose", "s->objx");
-	if (!(m->bdl = arr_alloc(m->macsz, double)))
-		err_msg("Allocation", "decompose", "m->bdl");
-	if (!(s->bdl = arr_alloc(s->macsz, double)))
-		err_msg("Allocation", "decompose", "s->bdl");
-	if (!(m->bdu = arr_alloc(m->macsz, double)))
-		err_msg("Allocation", "decompose", "m->bdu");
-	if (!(s->bdu = arr_alloc(s->macsz, double)))
-		err_msg("Allocation", "decompose", "s->bdu");
-	if (!(m->rhsx = arr_alloc(m->marsz, double)))
-		err_msg("Allocation", "decompose", "m->rhsx");
-	if (!(s->rhsx = arr_alloc(s->marsz, double)))
-		err_msg("Allocation", "decompose", "s->rhsx");
-	if (!(m->senx = arr_alloc(m->marsz, char)))
-		err_msg("Allocation", "decompose", "m->senx");
-	if (!(s->senx = arr_alloc(s->marsz, char)))
-		err_msg("Allocation", "decompose", "s->senx");
-	if (!(m->matbeg = arr_alloc(m->macsz, int)))
-		err_msg("Allocation", "decompose", "m->matbeg");
-	if (!(s->matbeg = arr_alloc(s->macsz, int)))
-		err_msg("Allocation", "decompose", "s->matbeg");
-	if (!(m->matcnt = arr_alloc(m->macsz, int)))
-		err_msg("Allocation", "decompose", "m->matcnt");
-	if (!(s->matcnt = arr_alloc(s->macsz, int)))
-		err_msg("Allocation", "decompose", "s->matcnt");
-	if (!(m->cname = arr_alloc(m->macsz, string)))
-		err_msg("Allocation", "decompose", "m->cname");
-	if (!(s->cname = arr_alloc(s->macsz, string)))
-		err_msg("Allocation", "decompose", "s->cname");
-	if (!(m->cstore = arr_alloc(m->cstorsz, char)))
-		err_msg("Allocation", "decompose", "m->cstore");
-	if (!(s->cstore = arr_alloc(s->cstorsz, char)))
-		err_msg("Allocation", "decompose", "s->cstore");
-	if (!(m->rname = arr_alloc(m->marsz, string)))
-		err_msg("Allocation", "decompose", "m->rname");
-	if (!(s->rname = arr_alloc(s->marsz, string)))
-		err_msg("Allocation", "decompose", "s->rname");
-	if (!(m->rstore = arr_alloc(m->rstorsz, char)))
-		err_msg("Allocation", "decompose", "m->rstore");
-	if (!(s->rstore = arr_alloc(s->rstorsz, char)))
-		err_msg("Allocation", "decompose", "s->rstore");
-
-	/*
-	 ** Make intial allocations of maximum foreseeable sizes
-	 ** for the master and subproblem CPLEX data.  Again, in the
-	 ** worst case, could be all master, or all subproblem.
-	 */
-	if (!(m->matval = arr_alloc(orig->matsz, double)))
-		err_msg("Allocation", "decompose", "m->matval");
-	if (!(s->matval = arr_alloc(orig->matsz, double)))
-		err_msg("Allocation", "decompose", "s->matval");
-	if (!(m->matind = arr_alloc(orig->matsz, int)))
-		err_msg("Allocation", "decompose", "m->matind");
-	if (!(s->matind = arr_alloc(orig->matsz, int)))
-		err_msg("Allocation", "decompose", "s->matind");
-
-	/*
-	 ** Copy the names of each constraint and decision variable for
-	 ** both the master and the subproblem.
-	 */
-	i = 0;
-	for (q = orig->cname[0]; q < orig->cname[col]; q++)
-		m->cstore[i++] = *q;
-	i = 0;
-	for (q = orig->cname[col]; q < orig->cname[col] + s->cstorsz; q++)
-		s->cstore[i++] = *q;
-
-	/*
-	 ** Calculate offsets for name pointers, to be used in transferring
-	 ** pointers to names in orignal, over to pointers to names in both
-	 ** the subproblem and master.
-	 */
-	m_offset = m->cstore - orig->cname[0];
-	s_offset = s->cstore - orig->cname[col];
-
-	/*
-	 ** Loop through all the coefficients in the "western" half of
-	 ** the original constraint matrix, and separate A from T
-	 ** Also pull out any data associated with master decision
-	 ** variables, like cost coefficients and upper/lower bounds.
-	 */
-	for (c = 0; c < col; c++)
-	{
-		p->c[c + 1] = orig->objx[c];
-		m->cname[c] = orig->cname[c] + m_offset;
-		m->objx[c] = orig->objx[c];
-		m->bdl[c] = orig->bdl[c];
-		m->bdu[c] = orig->bdu[c];
-		m->matbeg[c] = m->matsz;
-		m->matcnt[c] = 0;
-
-		for (idx = orig->matbeg[c]; idx < orig->matbeg[c] + orig->matcnt[c];
-				idx++)
-		{
-			if (orig->matind[idx] < row)
-			{
-				/* The coefficient is part of the master constraint matrix */
-				m->matval[m->matsz] = orig->matval[idx];
-				m->matind[m->matsz] = orig->matind[idx];
-				++m->matcnt[c];
-				++m->matsz;
-
-				/* In the regularized QP method, we need to store the master's A
-				 matrix. zl */
-				if (sd_global->config.MASTER_TYPE == SDQP)
-				{
-					p->A->val[p->A->cnt + 1] = orig->matval[idx];
-					p->A->row[p->A->cnt + 1] = orig->matind[idx] + 1;
-					p->A->col[p->A->cnt + 1] = c + 1;
-					/*
-					 fprintf (g_FilePointer,
-					 "A->col[%d] = %d, A->row[%d] = %d, A->val[%d] = %f\n",
-					 p->A->cnt+1, p->A->col[p->A->cnt+1],
-					 p->A->cnt+1, p->A->row[p->A->cnt+1],
-					 p->A->cnt+1, p->A->val[p->A->cnt+1]);
-					 */
-					++p->A->cnt;
+		/* copy column information for non-terminal stage */
+		cOffset = prob[t]->sp->cstore - orig->cname[tim->col[t]];
+		for ( m = tim->col[t]; m < tim->col[t+1]; m++ ) {
+			k = m - tim->col[t];
+			prob[t]->dBar->val[prob[t]->dBar->cnt+1] = orig->objx[m];
+			prob[t]->dBar->col[prob[t]->dBar->cnt+1] = m - tim->col[t]+1;
+			prob[t]->dBar->cnt++;
+			prob[t]->sp->objx[k] = orig->objx[m];
+			prob[t]->sp->bdl[k] = orig->bdl[m];
+			prob[t]->sp->bdu[k] = orig->bdu[m];
+			if ( orig->ctype[m] == 'I')
+				prob[t]->sp->numInt++;
+			else if ( orig->ctype[m] == 'B' )
+				prob[t]->sp->numBin++;
+			prob[t]->sp->ctype[k] = orig->ctype[m];
+			prob[t]->sp->cname[k] = orig->cname[m] + cOffset;
+			prob[t]->sp->matcnt[k] = 0;
+			for ( i = orig->matbeg[m]; i < orig->matbeg[m]+orig->matcnt[m]; i++ ) {
+				if (orig->matind[i] < tim->row[t+1]) {
+					/* The coefficient is part of the current stage constraint matrix */
+					if ( k == 0 )
+						prob[t]->sp->matbeg[k] = 0;
+					else
+						prob[t]->sp->matbeg[k] = prob[t]->sp->matbeg[k-1] + prob[t]->sp->matcnt[k-1];
+					prob[t]->sp->matval[prob[t]->sp->matsz] = orig->matval[i];
+					prob[t]->sp->matind[prob[t]->sp->matsz] = orig->matind[i] - tim->row[t];
+					++prob[t]->sp->matcnt[k];
+					++prob[t]->sp->matsz;
+					++prob[t]->sp->numnz;
+					prob[t]->Dbar->val[prob[t]->Dbar->cnt+1] = orig->matval[i];
+					prob[t]->Dbar->col[prob[t]->Dbar->cnt+1] = m-tim->col[t]+1;
+					prob[t]->Dbar->row[prob[t]->Dbar->cnt+1] = orig->matind[i] - tim->row[t]+1;
+					++prob[t]->Dbar->cnt;
+				}
+				else {
+					/* The coefficient is part of the next stage transfer matrix */
+					prob[t+1]->Cbar->val[prob[t+1]->Cbar->cnt+1] = orig->matval[i];
+					prob[t+1]->Cbar->row[prob[t+1]->Cbar->cnt+1] = orig->matind[i] - tim->row[t+1]+1;
+					prob[t+1]->Cbar->col[prob[t+1]->Cbar->cnt+1] = m-tim->col[t]+1;
+					++prob[t+1]->Cbar->cnt;
 				}
 			}
+		}
+
+		/* if integer or binary variables are encountered, then label the stage problem as a mixed integer LP */
+		if ( prob[t]->sp->numInt + prob[t]->sp->numBin > 0 )
+			prob[t]->sp->type = PROB_MILP;
+
+		/* copy row name of non-terminal stage */
+		m = 0;
+		for ( q = orig->rname[tim->row[t]]; q < orig->rname[tim->row[t+1]]; q++ )
+			prob[t]->sp->rstore[m++] = *q;
+
+		/* copy row information for non-terminal stage */
+		rOffset = prob[t]->sp->rstore - orig->rname[tim->row[t]];
+		for ( m = tim->row[t]; m < tim->row[t+1]; m++ ) {
+			k = m - tim->row[t];
+			prob[t]->sp->rhsx[k] = orig->rhsx[m];
+			prob[t]->sp->senx[k] = orig->senx[m];
+			prob[t]->sp->rname[k] = orig->rname[m]+rOffset;
+			prob[t]->bBar->val[prob[t]->bBar->cnt+1] = orig->rhsx[m];
+			prob[t]->bBar->col[prob[t]->bBar->cnt+1] = m - tim->row[t]+1;
+			prob[t]->bBar->cnt++;
+		}
+	}
+
+	/* Now copy the terminal stage problem */
+	/* copy column information for terminal stage*/
+	m = 0;
+	for ( q = orig->cname[tim->col[t]]; q < orig->cname[0] + orig->cstorsz; q++ )
+		prob[t]->sp->cstore[m++] = *q;
+
+	cOffset = prob[t]->sp->cstore - orig->cname[tim->col[t]];
+	for ( m = tim->col[t]; m < orig->mac; m++ ) {
+		k = m - tim->col[t];
+		prob[t]->dBar->val[prob[t]->dBar->cnt+1] = orig->objx[m];
+		prob[t]->dBar->col[prob[t]->dBar->cnt+1] = m-tim->col[t]+1;
+		prob[t]->dBar->cnt++;
+		prob[t]->sp->objx[k] = orig->objx[m];
+		prob[t]->sp->bdl[k] = orig->bdl[m];
+		prob[t]->sp->bdu[k] = orig->bdu[m];
+		if (orig->ctype[m] != 'C') {
+			errMsg("setup", "newProb", "integer variable in non-root stage",0);
+			return NULL;
+		}
+		else
+			prob[t]->sp->ctype[k] = orig->ctype[m];
+		prob[t]->sp->cname[k] = orig->cname[m] + cOffset;
+		prob[t]->sp->matcnt[k] = 0;
+		if ( orig->matcnt[m] > 0 )
+			for ( i = orig->matbeg[m]; i < orig->matbeg[m]+orig->matcnt[m]; i++ ) {
+				/* The coefficient is part of the current stage constraint matrix */
+				if ( k == 0 )
+					prob[t]->sp->matbeg[k] = 0;
+				else
+					prob[t]->sp->matbeg[k] = prob[t]->sp->matbeg[k-1] + prob[t]->sp->matcnt[k-1];
+				prob[t]->sp->matval[prob[t]->sp->matsz] = orig->matval[i];
+				prob[t]->sp->matind[prob[t]->sp->matsz] = orig->matind[i]-tim->row[t];
+				++prob[t]->sp->matcnt[k];
+				++prob[t]->sp->matsz;
+				++prob[t]->sp->numnz;
+			}
+		else {
+			if ( k == 0 )
+				prob[t]->sp->matbeg[k] = 0;
 			else
-			{
-				/* The coefficient is part of the subproblem's T matrix */
-				p->Tbar->val[p->Tbar->cnt + 1] = orig->matval[idx];
-				p->Tbar->row[p->Tbar->cnt + 1] = orig->matind[idx] - row + 1;
-				p->Tbar->col[p->Tbar->cnt + 1] = c + 1;
-				++p->Tbar->cnt;
-			}
+				prob[t]->sp->matbeg[k] = prob[t]->sp->matbeg[k-1];
 		}
 	}
 
-	/* Watch out!!!!  You assume, in find_cols, that Tbar is sorted by col !!!! */
+	/* copy row information for terminal stage */
+	m = 0;
+	for ( q = orig->rname[tim->row[t]]; q < orig->rname[0] + orig->rstorsz; q++ )
+		prob[t]->sp->rstore[m++] = *q;
 
-	/*
-	 ** Now loop through all the coefficients in the "eastern" half of
-	 ** the original constraint matrix, pulling out elements of W.
-	 ** Also pull out any data associated with subproblem decision
-	 ** variables, like cost coefficients and upper/lower bounds.
-	 */
-	for (c = col; c < orig->mac; c++)
-	{
-		s->cname[c - col] = orig->cname[c] + s_offset;
-		s->objx[c - col] = orig->objx[c];
-		s->bdu[c - col] = orig->bdu[c];
-		s->bdl[c - col] = orig->bdl[c];
-		s->matbeg[c - col] = s->matsz;
-		s->matcnt[c - col] = 0;
-		for (idx = orig->matbeg[c]; idx < orig->matbeg[c] + orig->matcnt[c];
-				idx++)
-		{
-			if (orig->matind[idx] < row)
-			{
-				/* The coefficient is not valid! */
-				printf(
-						"Error: constraint coefficient exists in invalid quadrant\n");
-				return FALSE;
-			}
-			else
-			{
-				/* The coefficient is part of the subproblem constraint matrix */
-				s->matval[s->matsz] = orig->matval[idx];
-				s->matind[s->matsz] = orig->matind[idx] - row;
-				++s->matcnt[c - col];
-				++s->matsz;
-			}
+	rOffset = prob[t]->sp->rstore - orig->rname[tim->row[t]];
+	for ( m = tim->row[t]; m < orig->mar; m++ ) {
+		k = m - tim->row[t];
+		prob[t]->sp->rhsx[k] = orig->rhsx[m];
+		prob[t]->sp->senx[k] = orig->senx[m];
+		prob[t]->sp->rname[k] = orig->rname[m]+rOffset;
+		prob[t]->bBar->val[prob[t]->bBar->cnt+1] = orig->rhsx[m];
+		prob[t]->bBar->col[prob[t]->bBar->cnt+1] = m - tim->row[t]+1;
+		prob[t]->bBar->cnt++;
+	}
+
+#ifdef DECOMPOSE_CHECK
+	/* write stage problems in LP format to verify decomposition */
+	char fname[BLOCKSIZE];
+	for ( t = 0; t < tim->numStages; t++) {
+		if ( !(prob[t]->sp->lp = setupProblem(prob[t]->sp->name, prob[t]->sp->type, prob[t]->sp->mac, prob[t]->sp->mar, prob[t]->sp->objsen, prob[t]->sp->objx, prob[t]->sp->rhsx, prob[t]->sp->senx,
+				prob[t]->sp->matbeg, prob[t]->sp->matcnt, prob[t]->sp->matind, prob[t]->sp->matval, prob[t]->sp->bdl, prob[t]->sp->bdu, NULL, prob[t]->sp->cname, prob[t]->sp->rname, prob[t]->sp->ctype)) ) {
+			errMsg("solver", "newProb", "failed to setup stage problem in solver", 0);
+			return prob;
+		}
+		sprintf(fname, "stageProb%d.lp", t);
+		if ( writeProblem(prob[t]->sp->lp, fname) ) {
+			errMsg("solver", "newProb", "failed to write stage problem", 0);
+			return prob;
 		}
 	}
-
-	/*
-	 ** Copy the names of each constraint row for
-	 ** both the master and the subproblem.
-	 */
-	i = 0;
-	for (q = orig->rname[0]; q < orig->rname[row]; q++)
-		m->rstore[i++] = *q;
-	i = 0;
-	for (q = orig->rname[row]; q < orig->rname[row] + s->rstorsz; q++)
-		s->rstore[i++] = *q;
-
-	/*
-	 ** Calculate offsets for the rname arrays... when added to a pointer
-	 ** in rname for the original, these give a new pointer for rname in
-	 ** the master and subproblem.
-	 */
-	m_offset = m->rstore - orig->rname[0];
-	s_offset = s->rstore - orig->rname[row];
-
-	/*
-	 ** Now go through the "north" and "south" halves of the original
-	 ** problem, to find the right hand side and sense of each constraint
-	 ** in the master and subproblem matrices.
-	 */
-	for (r = 0; r < row; r++)
-	{
-		m->rhsx[r] = orig->rhsx[r];
-		m->senx[r] = orig->senx[r];
-		m->rname[r] = orig->rname[r] + m_offset;
-	}
-
-	/* Initialize the subproblem rhs and Rbar with the same values */
-	for (r = row; r < orig->mar; r++)
-	{
-		s->rhsx[r - row] = orig->rhsx[r];
-		s->senx[r - row] = orig->senx[r];
-		s->rname[r - row] = orig->rname[r] + s_offset;
-		p->Rbar->val[p->Rbar->cnt + 1] = orig->rhsx[r];
-		p->Rbar->row[p->Rbar->cnt + 1] = r - row + 1;
-		++p->Rbar->cnt;
-	}
-
-	strcpy(m->name, "Master");
-	strcpy(s->name, "Subproblem");
-	strcpy(m->objname, orig->objname);
-	strcpy(s->objname, orig->objname);
-
-	/*
-	 ** Our first goal is to shrink down the arrays in the prob, master,
-	 ** and subproblem which were previously allocated to the maximum
-	 ** foreseeable size, now that we know how large they must be.
-	 ** (Recall that elements of the prob_type structure must have room
-	 ** for their 1-norms).  But, for the master problem we must reserve
-	 ** enough room for all of the cuts, as well as room for the extra
-	 ** eta column.  Hence, the arrays will get even bigger.
-	 */
-	m->matval = (double *) mem_realloc (m->matval, m->matsz*sizeof(double));
-	s->matval = (double *) mem_realloc (s->matval, s->matsz*sizeof(double));
-	m->matind = (int *) mem_realloc (m->matind, m->matsz*sizeof(int));
-	s->matind = (int *) mem_realloc (s->matind, s->matsz*sizeof(int));
-	p->c = (double *) mem_realloc (p->c, (m->macsz+1)*sizeof(double));
-	p->Tbar->row =
-			(int *) mem_realloc (p->Tbar->row, (p->Tbar->cnt+1)*sizeof(int));
-	p->Tbar->col =
-			(int *) mem_realloc (p->Tbar->col, (p->Tbar->cnt+1)*sizeof(int));
-	p->Tbar->val = (double *) mem_realloc (p->Tbar->val,
-			(p->Tbar->cnt+1)*sizeof(double));
-	p->Rbar->row =
-			(int *) mem_realloc (p->Rbar->row, (p->Rbar->cnt+1)*sizeof(int));
-	p->Rbar->val = (double *) mem_realloc (p->Rbar->val,
-			(p->Rbar->cnt+1)*sizeof(double));
-
-	/* While in regularized QP method, we need to reallocate the space for
-	 master's A matrix too.  zl */
-
-	if (SDQP == sd_global->config.MASTER_TYPE)
-	{
-		p->A->row = (int *) mem_realloc (p->A->row, (p->A->cnt+1)*sizeof(int));
-		p->A->col = (int *) mem_realloc (p->A->col, (p->A->cnt+1)*sizeof(int));
-		p->A->val = (double *) mem_realloc (p->A->val,
-				(p->A->cnt+1)*sizeof(double));
-	}
-
-	/* The Cplex default for the number nonzero read limit in Q matrix is 500.
-	 * When
-	 * 		master->ncols >= 500,
-	 * set it to be master->ncols + 1 (including the _eta_ column).
-	 * zl, 09/26/05 */
-	if ((SDQP == sd_global->config.MASTER_TYPE) && (m->mac >= 500))
-	{
-		printf("in decompose.c, set qp_nzreadlim to %d\n", m->mac + 1);
-		status = set_qp_nzreadlim(m->mac + 1);
-		if (0 != status)
-		{
-			printf("error: status = %d\n", status);
-			exit(1);
-		}
-	}
-
-	/*
-	 ** Finally get rid of the original problem
-	 */
-
-#ifdef DEBUG
-	printf("Printing in decompose\n");
-	print_contents(m, "m.out");
-	print_contents(s, "s.out");
-	printf("Done in decompose\n");
 #endif
 
-	return TRUE;
-}
+	/* save size information in numType */
+	for ( t = 0; t < tim->numStages; t++ ) {
+		if ( !(prob[t]->num = (numType *) mem_malloc(sizeof(numType))) )
+			errMsg("allocation", "newProb", "prob[t]->num",0);
 
-/****************************************************************************\
-** This function parses the command line paramenters and prompts the user
- ** for startup information required by SD.  It will determine how many
- ** problems will be solved (one or many) based on the command line arguments.
- ** A lack of arguments means that only one problem should be solved, and
- ** its name will be entered.  A number on the command line means that that
- ** many problems will be solved, with filenames "prob0000", "prob0001", etc.
- ** The second command line parameter specifies the starting point for a suite
- ** of test problems.
- \****************************************************************************/
-void parse_cmd_line(sdglobal_type* sd_global, int argc, char *argv[],
-		char *fname, int *objsen, int *num_probs, int *start, BOOL *read_seeds,
-		BOOL *read_iters)
-{
-  int status;
-	if (argc < 2)
-	{
-		printf("Please enter the name of the problem files (eg. `exags1p'): ");
-		status = scanf("%s", fname);
-        if (status <= 0) {
-          printf("You entered nothing.\n");
-        }
-		/*
-		 printf("Please enter the sense of the objective function (max=-1, min=1)");
-		 scanf("%d", objsen);*/
-		*objsen = 1;
-		*num_probs = 1;
-		*read_seeds = TRUE;
-		*read_iters = TRUE;
-	}
-	else if (argc < 3)
-	{
-        /* modified by yl, 2015-03-11. the first argument is 
-         expected to be the problem's name */
-		strcpy(fname, argv[1]);
-		*num_probs = 1;
-		*objsen = 1;
-		*read_seeds = TRUE;
-		*read_iters = TRUE;
-	}
-	else if (argc == 5)
-	{
-		strcpy(fname, argv[1]);
-		sscanf(argv[2], "%d", objsen);
-		sscanf(argv[3], "%lld", &(sd_global->config.RUN_SEED1));
-		sscanf(argv[3], "%lld", &(sd_global->config.RUN_SEED2));
-		sscanf(argv[4], "%lld", &(sd_global->config.EVAL_SEED1));
+		prob[t]->num->cols = prob[t]->sp->mac;
+		prob[t]->num->rows = prob[t]->sp->mar;
+		prob[t]->num->intCols = prob[t]->sp->numInt;
+		prob[t]->num->binCols = prob[t]->sp->numBin;
+		prob[t]->num->numRV = prob[t]->num->rvColCnt = prob[t]->num->rvRowCnt = 0;
+		prob[t]->num->rvAOmCnt = prob[t]->num->rvBOmCnt = prob[t]->num->rvCOmCnt = prob[t]->num->rvDOmCnt = 0;
+		prob[t]->num->rvaOmCnt = prob[t]->num->rvbOmCnt = prob[t]->num->rvcOmCnt = prob[t]->num->rvdOmCnt = 0;
 
-		printf(
-				"In sd.c, parse_cmd_line, argc = %d, objsen = %d, RUN_SEED1 = %lld, RUN_SEED2 = %lld, EVAL_SEED1 = %lld\n",
-				argc, *objsen, sd_global->config.RUN_SEED1,
-				sd_global->config.RUN_SEED2, sd_global->config.EVAL_SEED1);
-		*num_probs = 1;
-		*read_seeds = FALSE;
-		*read_iters = TRUE; /* added by zl. 06/18/02. */
-	}
-	else if (argc == 7) /* added by zl. 06/18/02. */
-	{
-		strcpy(fname, argv[1]);
-		sscanf(argv[2], "%d", objsen);
-		sscanf(argv[3], "%lld", &(sd_global->config.RUN_SEED1));
-		sscanf(argv[3], "%lld", &(sd_global->config.RUN_SEED2));
-		sscanf(argv[4], "%lld", &(sd_global->config.EVAL_SEED1));
-		sscanf(argv[5], "%d", &(sd_global->config.MIN_ITER));
-		sscanf(argv[6], "%d", &(sd_global->config.MAX_ITER));
-		sd_global->config.START_THIN = sd_global->config.MAX_ITER;
-		*num_probs = 1;
-		*read_seeds = FALSE;
-		*read_iters = FALSE; /* added by zl. 06/18/02. */
-		printf(
-				"In sd.c, parse_cmd_line, argc = %d, objsen = %d, RUN_SEED1 = %lld, RUN_SEED2 = %lld, EVAL_SEED1 = %lld, MIN = %d, MAX = %d\n",
-				argc, *objsen, sd_global->config.RUN_SEED1,
-				sd_global->config.RUN_SEED2, sd_global->config.EVAL_SEED1,
-				sd_global->config.MIN_ITER, sd_global->config.MAX_ITER);
-	}
-	else
-	{
-		strcpy(fname, "prob    ");
-		*num_probs = atoi(argv[1]);
-		*start = atoi(argv[2]);
-		*read_seeds = TRUE;
-		*read_iters = TRUE; /* added by zl. 06/18/02. */
-		*objsen = 1;
-	}
-}
-
-/****************************************************************************\
-** This function informs the user of an error, and aborts the program.
- ** The first parameter is a string which describes what type of error
- ** has occurred (e.g. Allocation, NULL pointer, etc.)  The second
- ** parameter gives the function in which the error was recognized
- ** (i.e. the function which is calling this one).  The third parameter
- ** specifies which item / calculation / segment of the function caused
- ** the error (e.g. which array was not allocated, which pointer was NULL)
- **
- ** You can change this so that it asks the user if they dare to go on.
- ** Just return if they say yes... (heh heh heh).
- \****************************************************************************/
-void err_msg(char *type, char *place, char *item)
-{
-	printf("\n\n||| %s error in function %s(), item %s.\n", type, place, item);
-	exit(1);
-}
-
-void get_lower_bound(sdglobal_type* sd_global, one_problem *p, int row, int col)
-{
-	int ans, cnt;
-//	int scr_stat;
-	int *indices;
-	double *values;
-	double lower_bound;
-	one_problem *copy;
-    BOOL zero_lb = TRUE;
-
-    for (cnt = col; cnt < p->mac; cnt++) {
-        if (p->objx[cnt] < 0 || p->bdl[cnt] < 0) {
-            zero_lb = FALSE;
-        }
-    }
-    
-    if (zero_lb) {
-        sd_global->Eta0 = 0.0;
-        return;
-    }
-    
-	if (!(copy = (one_problem *) mem_malloc (sizeof(one_problem))))
-		err_msg("Allocation", "get_lower_bound", "copy");
-	if (!(sd_global->Bbar = arr_alloc(col+3, double)))
-		err_msg("Allocation", "sd", "Bbar");
-
-	/* Before any changes, clone a whole new problem from the master */
-	copy->lp = clone_prob(p);
-
-	/* Initialize memory space for indices */
-	if (!(indices = arr_alloc(p->mac, int)))
-		err_msg("Allocation", "get_lower_bound", "indices");
-
-	/* Initialize memory space for values */
-	if (!(values = arr_alloc(p->mac, double)))
-		err_msg("Allocation", "get_lower_bound", "values");
-
-	/* First get Beta and Alpha from the mean value problem*/
-	calc_alpha_beta(sd_global, p, row, col);
-
-	/* Then use Beta and Alpha to get the lower bound for optimality cut */
-	for (cnt = 0; cnt < col; cnt++)
-	{
-		indices[cnt] = cnt;
-		values[cnt] = -sd_global->Bbar[cnt + 1];
-	}
-
-	for (cnt = col; cnt < p->mac; cnt++)
-	{
-		indices[cnt] = cnt;
-		values[cnt] = 0.0;
-	}
-
-	/*
-     write_prob(copy, "before_coef_change.lp");
-	 */
-	
-
-	/* Change the objective to lower bound calculation */
-	change_objective(copy, p->mac, indices, values);
-
-        // write_prob(copy, "after_coef_change.lp");
-	/*
-	 write_prob(p, "SDprob_after_coef_change.lp");
-	 */
-
-	change_solver_primal(p);
-
-	set_intparam(p, PARAM_SCRIND, ON);
-	ans = solve_lp(copy);
-	if (ans != 0)
-	{
-		printf("Solution status: %d.\n", ans);
-		err_msg("solve_lp", "get_lower_bound",
-				"Make sure that the first stage is bounded.");
-	}
-	set_intparam(p, PARAM_SCRIND, ON);
-
-	lower_bound = get_objective(copy);
-	sd_global->Eta0 = lower_bound + sd_global->Abar;
-
-	printf("lower_bound is %f\n", lower_bound);
-	printf("Eta0 is %f\n", sd_global->Eta0);
-
-	remove_problem(copy);
-	mem_free(copy);
-	mem_free(indices);
-	mem_free(values);
-	mem_free(sd_global->Bbar);
-}
-
-/****************************************************************************\
-****  added by Yifan Mar 29 2011 * get the dual solution, Tbar, Rbar, alpha, beta  **
- \****************************************************************************/
-void calc_alpha_beta(sdglobal_type* sd_global, one_problem *p, int row, int col)
-{
-	double *y_i; /* Initial dual candidate, from original problem */
-	int r, c, idx, j;
-	prob_type *prob;
-
-	/* Get the dual multipliers from the mean problem */
-	if (!(y_i = arr_alloc(p->mar+1, double)))
-		err_msg("Allocation", "main", "y_i");
-	get_dual(y_i, p, NULL, p->mar);
-
-	/*
-	 ** Make initial allocations of size for prob_type
-	 ** structure used in calculating Abar and Bbar
-	 */
-	if (!(prob = (prob_type *) mem_malloc (sizeof(prob_type))))
-		err_msg("Allocation", "main", "prob");
-	if (!(prob->Rbar = (sparse_vect *) mem_malloc (sizeof(sparse_vect))))
-		err_msg("Allocation", "main", "prob->Rbar");
-	if (!(prob->Tbar = (sparse_matrix *) mem_malloc (sizeof(sparse_matrix))))
-		err_msg("Allocation", "main", "prob->Tbar");
-	if (!(prob->Tbar->row = arr_alloc(p->matsz+1, int)))
-		err_msg("Allocation", "sd", "Tbar->row");
-	if (!(prob->Tbar->col = arr_alloc(p->matsz+1, int)))
-		err_msg("Allocation", "sd", "Tbar->col");
-	if (!(prob->Tbar->val = arr_alloc(p->matsz+1, double)))
-		err_msg("Allocation", "sd", "Tbar->val");
-	if (!(prob->Rbar->row = arr_alloc(p->marsz+1, int)))
-		err_msg("Allocation", "sd", "Rbar->row");
-	if (!(prob->Rbar->val = arr_alloc(p->marsz+1, double)))
-		err_msg("Allocation", "sd", "Rbar->val");
-
-	prob->Tbar->cnt = 0;
-	prob->Rbar->cnt = 0;
-
-	/*Procedure used to Extract Rbar*/
-	for (r = row; r < p->mar; r++)
-	{
-		if (p->rhsx[r] > 0.000001)
-		{
-			prob->Rbar->val[prob->Rbar->cnt + 1] = p->rhsx[r];
-			prob->Rbar->row[prob->Rbar->cnt + 1] = r - row + 1;
-			++prob->Rbar->cnt;
+		if ( t == 0 ) {
+			prob[t]->mean = NULL;
+			prob[t]->coord = NULL;
+			prob[t]->num->prevCols = prob[t]->num->prevRows = prob[t]->num->cntCcols = prob[t]->num->cntCrows = 0;
+		}
+		else {
+			if ( !(prob[t]->coord = (coordType *) mem_malloc(sizeof(coordType))) )
+				errMsg("allocation", "newProb", "prob[t]->coord",0);
+			prob[t]->num->prevCols = prob[t-1]->num->cols;
+			prob[t]->num->prevRows = prob[t-1]->num->rows;
+			prob[t]->coord->CCols = findElems(prob[t]->Cbar->col, prob[t]->Cbar->cnt, &prob[t]->num->cntCcols);
+			prob[t]->coord->CRows = findElems(prob[t]->Cbar->row, prob[t]->Cbar->cnt, &prob[t]->num->cntCrows);
+			prob[t]->coord->allRVCols = prob[t]->coord->allRVRows = prob[t]->coord->rvCols = prob[t]->coord->rvRows = NULL;
+			prob[t]->coord->rvCOmCols = prob[t]->coord->rvCOmRows = prob[t]->coord->rvbOmRows = prob[t]->coord->rvdOmCols = NULL;
 		}
 	}
 
-	/*Procedure used to Extract Tbar*/
-	for (c = 0; c < col; c++)
-	{
-		for (idx = p->matbeg[c]; idx < p->matbeg[c] + p->matcnt[c]; idx++)
-		{
-			if (p->matind[idx] >= row)
-			{
-				/* The coefficient is part of the subproblem's T matrix */
-				prob->Tbar->val[prob->Tbar->cnt + 1] = p->matval[idx];
-				prob->Tbar->row[prob->Tbar->cnt + 1] = p->matind[idx] - row + 1;
-				prob->Tbar->col[prob->Tbar->cnt + 1] = c + 1;
-				++prob->Tbar->cnt;
+	/* decompose the stochastic elements of the problem. Go through the list of random variable and assign them to
+	 * appropriate parts (right-hand side and objective coefficients). */
+	for ( m = 0; m < stoc->numOmega; m++ ) {
+		if ( stoc->col[m] == -1 ) {
+			/* randomness in right-hand side */
+			t = 0;
+			while ( t < tim->numStages ) {
+				if ( stoc->row[m] < tim->row[t] )
+					break;
+				t++;
+			}
+			t--;
+		}
+		else {
+			/* randomness in either objective function coefficients or the transfer matrix */
+			t = 0;
+			while ( t < tim->numStages ) {
+				if ( stoc->col[m] < tim->col[t] )
+					break;
+				t++;
+			}
+			t--;
+		}
+
+		if ( t == 0 ) {
+			errMsg("setup", "newProb", "encountered randomness in root-stage", 0);
+			return NULL;
+		}
+
+		if ( prob[t]->num->numRV == 0) {
+			if ( !(prob[t]->coord->allRVCols = (intvec) arr_alloc(stoc->numOmega+1, int)) )
+				errMsg("allocation", "newProb", "prob->coord->allRVCols", 0);
+			if ( !(prob[t]->coord->allRVRows= (intvec) arr_alloc(stoc->numOmega+1, int)) )
+				errMsg("allocation", "newProb", "prob->coord->allRVRows", 0);
+			if ( !(prob[t]->coord->rvOffset = (intvec) arr_alloc(3, int)))
+				errMsg("allocation", "newProb", "prob->coord->rOffset", 0);
+			if ( !(prob[t]->mean = (vector) arr_alloc(stoc->numOmega+1, double)) )
+				errMsg("allocation", "newProb", "prob->mean", 0);
+			prob[t]->omBeg = m;
+		}
+
+		prob[t]->num->numRV++;
+		prob[t]->mean[prob[t]->num->numRV] = stoc->mean[m];
+
+		if ( stoc->col[m] == -1 && stoc->row[m] != -1 ) {
+			/* Right-hand side */
+			if ( prob[t]->num->rvbOmCnt == 0 ) {
+				prob[t]->coord->rvbOmRows = (intvec) arr_alloc(stoc->numOmega+1, int);
+				prob[t]->coord->rvOffset[0] = m;
+			}
+			prob[t]->coord->allRVCols[prob[t]->num->numRV] = -1;
+			prob[t]->coord->allRVRows[prob[t]->num->numRV] = stoc->row[m]-tim->row[t]+1;
+			prob[t]->coord->rvbOmRows[++prob[t]->num->rvbOmCnt] = prob[t]->coord->allRVRows[prob[t]->num->numRV];
+		}
+		else if ( stoc->col[m] != -1 && stoc->row[m] != -1 ) {
+			/* Transfer matrix */
+			if ( prob[t]->num->rvCOmCnt == 0 ) {
+				prob[t]->coord->rvCOmCols = (intvec) arr_alloc(stoc->numOmega, int);
+				prob[t]->coord->rvCOmRows = (intvec) arr_alloc(stoc->numOmega, int);
+				prob[t]->coord->rvOffset[1] = m;
+			}
+			prob[t]->coord->allRVCols[prob[t]->num->numRV] = stoc->col[m]-tim->col[t]+1;
+			prob[t]->coord->allRVRows[prob[t]->num->numRV] = stoc->row[m]-tim->row[t]+1;
+			prob[t]->num->rvCOmCnt++;
+			prob[t]->coord->rvCOmCols[prob[t]->num->rvCOmCnt] = prob[t]->coord->allRVCols[prob[t]->num->numRV];
+			prob[t]->coord->rvCOmRows[prob[t]->num->rvCOmCnt] = prob[t]->coord->allRVRows[prob[t]->num->numRV];
+		}
+		else {
+			/* Cost coefficients */
+			if ( prob[t]->num->rvdOmCnt == 0 ) {
+				prob[t]->coord->rvdOmCols = (intvec) arr_alloc(stoc->numOmega+1,int);
+				prob[t]->coord->rvOffset[2] = m;
+			}
+			prob[t]->coord->allRVCols[prob[t]->num->numRV] = stoc->col[m]-tim->col[t]+1;
+			prob[t]->coord->allRVRows[prob[t]->num->numRV] = -1;
+			prob[t]->coord->rvdOmCols[++prob[t]->num->rvdOmCnt] = prob[t]->coord->allRVCols[prob[t]->num->numRV];
+		}
+	}
+
+	for ( t = 1; t < tim->numStages; t++ ) {
+		prob[t]->coord->rvCols = findElems(prob[t]->coord->allRVCols, prob[t]->num->numRV, &prob[t]->num->rvColCnt);
+		prob[t]->coord->rvRows = findElems(prob[t]->coord->allRVRows, prob[t]->num->numRV, &prob[t]->num->rvRowCnt);
+	}
+
+	/* Modify the dBar, bBar and Cbar with mean values computed from stoch file */
+	for ( t = 1; t < tim->numStages; t++ ) {
+		/* Right-hand side */
+		for ( m = 1; m <= prob[t]->num->rvbOmCnt; m++ ) {
+			i = 1;
+			while ( i <= prob[t]->bBar->cnt ) {
+				if ( prob[t]->bBar->col[i] == prob[t]->coord->rvbOmRows[m])
+					break;
+				i++;
+			}
+			prob[t]->bBar->val[i] = stoc->mean[prob[t]->coord->rvOffset[0]+m-1];
+		}
+
+		/* Transfer matrix */
+		for ( m = 1; m <= prob[t]->num->rvCOmCnt; m++ ) {
+			i = 1;
+			while ( i <= prob[t]->num->rvCOmCnt ) {
+				if ( prob[t]->Cbar->col[i] == prob[t]->coord->rvCOmCols[m] && prob[t]->Cbar->row[i] == prob[t]->coord->rvCOmRows[m] )
+					break;
+				i++;
+			}
+			prob[t]->Cbar->val[i] = stoc->mean[prob[t]->coord->rvOffset[1]+m-1];
+		}
+
+		/* Cost coefficients */
+		for ( m = 1; m <= prob[t]->num->rvdOmCnt; m++ ) {
+			i = 1;
+			while ( i <= prob[t]->dBar->cnt ) {
+				if ( prob[t]->dBar->col[i] == prob[t]->coord->rvdOmCols[m])
+					break;
+				i++;
+			}
+			prob[t]->dBar->val[i] = stoc->mean[prob[t]->coord->rvOffset[2]+m-1];
+		}
+	}
+
+#if defined(DECOMPOSE_CHECK)
+	t = 1;
+	prob[t]->sp->lp = setupProblem(prob[t]->sp->name, prob[t]->sp->type, prob[t]->sp->mac, prob[t]->sp->mar, prob[t]->sp->objsen, prob[t]->sp->objx, prob[t]->sp->rhsx, prob[t]->sp->senx,
+			prob[t]->sp->matbeg, prob[t]->sp->matcnt, prob[t]->sp->matind, prob[t]->sp->matval, prob[t]->sp->bdl, prob[t]->sp->bdu, NULL, prob[t]->sp->cname, prob[t]->sp->rname,
+			prob[t]->sp->ctype);
+	if ( prob[t]->sp->lp == NULL ) {
+		errMsg("solver", "newSubprob", "subprob",0);
+		return NULL;
+	}
+#endif
+
+	return prob;
+}//END newProb()
+
+/* setup and solve the original problem _orig_ with expected values for all random variables provided in _stoc_. If the problem is an mixed-integer program,
+ *  then a relaxed problem is solved. The function returns a vector of mean value solutions, if there is an error it returns NULL.*/
+vector meanProblem(oneProblem *orig, stocType *stoc) {
+	vector	xk;
+	double	obj = 0.0;
+	int 	n, status;
+
+	/* setup problem in the solver */
+	orig->lp = setupProblem(orig->name, orig->type, orig->mac, orig->mar, orig->objsen, orig->objx, orig->rhsx, orig->senx, orig->matbeg, orig->matcnt,
+			orig->matind, orig->matval, orig->bdl, orig->bdu, NULL, orig->cname, orig->rname, orig->ctype);
+	if ( orig->lp == NULL ) {
+		errMsg("setup", "meanProblem", "failed to setup the mean problem", 0);
+		return NULL;
+	}
+
+	/* change the coefficients and right-hand side to mean values */
+	for (n = 0; n < stoc->numOmega; n++ ) {
+		status = changeCoef(orig->lp, stoc->row[n], stoc->col[n], stoc->mean[n]);
+		if ( status ) {
+			errMsg("setup", "meanProblem", "failed to change the coefficients with mean values", 0);
+			return NULL;
+		}
+	}
+
+	/* change the problem type to solve the relaxed mean value problem */
+	if ( orig->type == PROB_MILP || orig->type == PROB_MIQP ) {
+		status = changeProbType(orig->lp, PROB_LP);
+		if ( status ) {
+			errMsg("solver", "meanProblem", "failed to relax the mixed-integer program", 0);
+			return NULL;
+		}
+	}
+
+	/* write the mean value problem */
+	status = writeProblem(orig->lp, "original.lp");
+	if ( status ) {
+		errMsg("solver", "meanProblem", "failed to write the problem", 0);
+		return NULL;
+	}
+
+	/* solve the mean value problem */
+	changeLPSolverType(ALG_AUTOMATIC);
+	status = solveProblem(orig->lp, orig->name, PROB_QP, &status);
+	if ( status ) {
+		errMsg("setup", "meanProblem", "failed to solve mean value problem", 0);
+		return NULL;
+	}
+
+	/* obtain solution information and print */
+	if ( !(xk = (vector) arr_alloc(orig->mac+1, double)) )
+		errMsg("allocation", "meanProblem", "sol", 0);
+
+	/* print results */
+	obj = getObjective(orig->lp, PROB_LP);
+	printf("Optimal objective function value for (relaxed) mean value problem = %lf\n", obj);
+
+	/* obtain the primal solution */
+	getPrimal(orig->lp,	xk, orig->mac);
+
+	return xk;
+}//END meanProblem()
+
+vector calcLowerBound(oneProblem *orig, timeType *tim, stocType *stoc) {
+	sparseVector	*bBar;
+	sparseMatrix	*Cbar;
+	vector		duals, vals, beta, lb;
+	intvec		indices;
+	double		alpha;
+	int 		stat1, t, col, row, m, n;
+	LPptr		lpClone;
+	BOOL		zeroLB;
+
+	if ( !(lb = (vector) arr_alloc(tim->numStages, double)) )
+		errMsg("allocation", "getLowerBound", "lb", 0);
+	if ( !(duals = (vector) arr_alloc(orig->mar+1, double)) )
+		errMsg("allocation", "getLowerBound", "duals", 0);
+	if (!(indices = (intvec) arr_alloc(orig->mac, int)))
+		errMsg("allocation", "getLowerBound", "indices", 0);
+	if (!(vals = (vector) arr_alloc(orig->mac, double)))
+		errMsg("allocation", "getLowerBound", "vals", 0);
+	if (!(bBar = (sparseVector *) mem_malloc(sizeof(sparseVector))) )
+		errMsg("allocation", "getLowerBound", "bBar", 0);
+	if (!(bBar->col = (intvec) arr_alloc(orig->mar+1, int)) )
+		errMsg("allocation", "getLowerBound", "bBar->col", 0);
+	if (!(bBar->val = (vector) arr_alloc(orig->mar+1, double)) )
+		errMsg("allocation", "getLowerBound", "bBar->val", 0);
+	if (!(Cbar = (sparseMatrix *) mem_malloc(sizeof(sparseMatrix))) )
+		errMsg("allocation", "getLowerBound", "Cbar", 0);
+	if (!(Cbar->col = (intvec) arr_alloc(orig->matsz+1, int)) )
+		errMsg("allocation", "getLowerBound", "Cbar->col", 0);
+	if (!(Cbar->row = (intvec) arr_alloc(orig->matsz+1, int)) )
+		errMsg("allocation", "getLowerBound", "Cbar->row", 0);
+	if (!(Cbar->val = (vector) arr_alloc(orig->matsz+1, double)) )
+		errMsg("allocation", "getLowerBound", "Cbar->val", 0);
+	if ( !(beta = (vector) arr_alloc(orig->mac+3, double)) )
+		errMsg("allocation", "getLowerBound", "beta", 0);
+
+	/* obtain dual solutions from the mean value solve */
+	if ( getDual(orig->lp, duals, orig->mar) ) {
+		errMsg("setup", "getLowerBound", "failed to obtain dual for the mean value problem", 0);
+		return NULL;
+	}
+
+	printf("Lower bounds computed = ");
+
+	for ( t = 1; t < tim->numStages; t++ ) {
+		zeroLB = TRUE;
+		col = tim->col[t]; row = tim->row[t];
+		bBar->cnt = 0; Cbar->cnt = 0;
+
+		/* check to see if zero is a valid lower bound. If so, then we will use it as a lower bound */
+		n = col;
+		while ( n < orig->mac ) {
+			if ( orig->objx[n]*orig->bdl[n] < 0 || orig->objx[n]*orig->bdu[n] < 0) {
+				zeroLB = FALSE;
+				break;
+			}
+			n++;
+		}
+		if ( !(zeroLB) ) {
+			/* clone to problem to be used for computing the lower bound */
+			lpClone = cloneProblem(orig->lp);
+
+			/* extract bBar */
+			m = 0;
+			for (n = row; n < orig->mar; n++) {
+				/* if the element has randomness in right-hand side, then make sure it is accounted */
+				if ( n == stoc->row[m] && m < stoc->numOmega)
+					bBar->val[bBar->cnt + 1] = stoc->mean[m++];
+				else
+					bBar->val[bBar->cnt + 1] = orig->rhsx[n];
+				bBar->col[bBar->cnt + 1] = n - row + 1;
+				++bBar->cnt;
+			}
+
+			/* extract Cbar */
+			for (n = 0; n < col; n++) {
+				for (m = orig->matbeg[n]; m < orig->matbeg[n] + orig->matcnt[n]; m++) {
+					if (orig->matind[m] >= row) {
+						/* The coefficient is part of the subproblem's T matrix */
+						Cbar->val[Cbar->cnt + 1] = orig->matval[m];
+						Cbar->row[Cbar->cnt + 1] = orig->matind[m] - row + 1;
+						Cbar->col[Cbar->cnt + 1] = n + 1;
+						++Cbar->cnt;
+					}
+				}
+			}
+
+			/* compute alpha and beta */
+			alpha = 0.0;
+			for ( n = 1; n <= bBar->cnt; n++ )
+				alpha += duals[bBar->col[n]+row] * bBar->val[n];
+			for (n = 0; n <= col + 2; n++)
+				beta[n] = 0.0;
+			for (n = 1; n <= Cbar->cnt; n++)
+				beta[Cbar->col[n]] = beta[Cbar->col[n]] + duals[row + Cbar->row[n]] * Cbar->val[n];
+			beta[col + 2] = -1;
+
+			/* use mean-cut coefficients to create the lower-bounding problem */
+			for (n = 0; n < col; n++) {
+				indices[n] = n;
+				vals[n] = -beta[n + 1];
+			}
+			for (n = col; n < orig->mac; n++) {
+				indices[n] = n;
+				vals[n] = 0.0;
+			}
+
+			/* Change the objective in solver to prepare for lower bound calculation */
+			if ( changeObjx(lpClone, orig->mac, indices, vals) ) {
+				errMsg("setup", "calcLowerBound", "failed to change objective coefficients in solver while computing lower bound", 0);
+				return NULL;
+			}
+
+#ifdef SETUP_CHECK
+			writeProblem(lpClone, "lowerBoundCalc.lp");
+#endif
+
+			/* solve the problem */
+			changeLPSolverType(ALG_AUTOMATIC);
+			if (solveProblem(lpClone, "lowerBoundCalc", PROB_LP, &stat1) ) {
+				errMsg("setup", "calcLowerBound", "failed to solve problem computing lower bound", 0);
+				return NULL;
+			}
+
+			/* get lower bound */
+			lb[t-1] = min(0, getObjective(lpClone, PROB_LP) + alpha);
+
+			/* release the problem */
+			if ( freeProblem(lpClone) ) {
+				errMsg("setup", "calcLowerBound", "failed to free problem", 0);
+				return NULL;
 			}
 		}
+		else
+			lb[t-1] = 0.0;
+
+		printf("%0.3lf\t", lb[t-1]);
 	}
+	lb[t-1] = 0.0;
+	printf("\n");
 
-	sd_global->Abar = 0.0;
-	for (j = 1; j <= prob->Rbar->cnt; j++)
-	{
-		sd_global->Abar = sd_global->Abar
-				+ y_i[row + prob->Rbar->row[j]] * prob->Rbar->val[j];
-	}
+	mem_free(indices);
+	mem_free(vals);
+	mem_free(beta);
+	mem_free(duals);
+	freeSparseVector(bBar); freeSparseMatrix(Cbar);
 
-	for (j = 0; j <= col + 2; j++)
-	{
-		sd_global->Bbar[j] = 0.0;
-	}
-
-	/*Calc Bbar*/
-	for (j = 1; j <= prob->Tbar->cnt; ++j)
-	{
-		sd_global->Bbar[prob->Tbar->col[j]] =
-				sd_global->Bbar[prob->Tbar->col[j]]
-						+ y_i[row + prob->Tbar->row[j]] * prob->Tbar->val[j];
-	}
-	sd_global->Bbar[col + 2] = -1;
-
-	/* Free the sparse vecotrs and matrices in the prob_type structure */
-	mem_free(y_i);
-	mem_free(prob->Tbar->row);
-	mem_free(prob->Tbar->col);
-	mem_free(prob->Tbar->val);
-	mem_free(prob->Tbar);
-	mem_free(prob->Rbar->row);
-	mem_free(prob->Rbar->val);
-	mem_free(prob->Rbar);
-	mem_free(prob);
-}
-
-void generate_seed(sd_long * seed1, sd_long * seed2)
-{
-	int idx, cnt;
-    sd_long rseed1, rseed2;
-
-	printf("time:%ld\n", time(NULL) % 3600);
-    srand((unsigned int) time(NULL));
-	for (cnt = 0; cnt < BATCH_SIZE; cnt++)
-	{
-		for (idx = 0; idx < 4; idx++)
-		{
-			rseed1 = rand();
-			/* printf("rseed1 before:%lx\n",rseed1); */
-			rseed1 = rseed1 & 0x000000000000FFFF;
-			/* printf("rseed1 after:%lx\n\n",rseed1); */
-          if (idx == 0) {
-            rseed2 = rseed1;
-          }
-          else{
-            rseed2 = rseed2 << 16;
-            rseed2 = rseed1|rseed2 ;
-            /* printf("rseed2 after:%lx\n\n",rseed2);*/
-          }
+	/* change the problem type back to its original form */
+	if ( orig->type == PROB_MILP ) {
+		if ( changeProbType(orig->lp, PROB_MILP) ) {
+			errMsg("solver", "calcLowerBound", "failed to relax the mean value problem", 0);
+			return NULL;
 		}
-		seed1[cnt] = rseed2;
 	}
-	printf("done\n");
-}
+
+	return lb;
+}//END calcLowerBound()
+
+/* free up the probType. Needs number of stages as input */
+void freeProbType(probType **prob, int T) {
+	int t;
+
+	if ( prob ) {
+		for ( t = 0; t < T; t++ ) {
+			if (prob[t]) {
+				if (prob[t]->Abar) freeSparseMatrix(prob[t]->Abar);
+				if (prob[t]->Bbar) freeSparseMatrix(prob[t]->Bbar);
+				if (prob[t]->Cbar) freeSparseMatrix(prob[t]->Cbar);
+				if (prob[t]->Dbar) freeSparseMatrix(prob[t]->Dbar);
+				if (prob[t]->aBar) freeSparseVector(prob[t]->aBar);
+				if (prob[t]->bBar) freeSparseVector(prob[t]->bBar);
+				if (prob[t]->cBar) freeSparseVector(prob[t]->cBar);
+				if (prob[t]->dBar) freeSparseVector(prob[t]->dBar);
+				if (prob[t]->sp) freeOneProblem(prob[t]->sp);
+				if (prob[t]->name) mem_free(prob[t]->name);
+				if (prob[t]->num) mem_free(prob[t]->num);
+				if (prob[t]->coord) freeCoordType(prob[t]->coord);
+				if (prob[t]->mean) mem_free(prob[t]->mean);
+				mem_free(prob[t]);
+			}
+		}
+		mem_free(prob);
+	}
+
+}//END freeProb()
+
+/* free up the coordType */
+void freeCoordType (coordType *coord) {
+
+	if (coord->allRVCols) mem_free(coord->allRVCols);
+	if (coord->allRVRows) mem_free(coord->allRVRows);
+	if (coord->CCols) mem_free(coord->CCols);
+	if (coord->CRows) mem_free(coord->CRows);
+	if (coord->rvCols) mem_free(coord->rvCols);
+	if (coord->rvRows) mem_free(coord->rvRows);
+	if (coord->rvbOmRows) mem_free(coord->rvbOmRows);
+	if (coord->rvdOmCols) mem_free(coord->rvdOmCols);
+	if (coord->rvCOmCols) mem_free(coord->rvCOmCols);
+	if (coord->rvCOmRows) mem_free(coord->rvCOmRows);
+	if (coord->rvOffset) mem_free(coord->rvOffset);
+	mem_free(coord);
+
+}//END freeCoordType()
+
+void printDecomposeSummary(FILE *fptr, string probName, timeType *tim, probType **prob) {
+	int t;
+
+	fprintf(fptr, "====================================================================================================================================\n");
+	fprintf(fptr, "Stage optimization problem for given input s_t = (x_t, omega_t) is in the following form : \n\n");
+	fprintf(fptr, "\t\t\t\t h_t(s_t) = c_t*x_t + min d_t*u_t\n");
+	fprintf(fptr, "\t\t\t\t                      s.t. D_t u_t = b_t - C_t x_t,\n\n");
+	fprintf(fptr, "with the following linear dynamics: x_{t+} = a_{t+} + A_{t+}x_t + B_{t+}u_t.\n\n");
+	fprintf(fptr, "------------------------------------------------------------------------------------------------------------------------------------\n");
+	fprintf(fptr, "\n====================================================================================================================================\n");
+	fprintf(fptr, "-------------------------------------------------------- Problem Information -------------------------------------------------------\n");
+	fprintf(fptr, "====================================================================================================================================\n");
+	fprintf(fptr, "Problem                            : %s\n", probName);
+	fprintf(fptr, "Number of stages                   : %d\n", tim->numStages);
+	for ( t = 0; t < tim->numStages; t++ ) {
+		fprintf(fptr,  "------------------------------------------------------------------------------------------------------------------------------------\n");
+		fprintf(fptr,  "Stage %d\n", t);
+		fprintf(fptr,  "Number of decision variables (u_t) = %d\t\t", prob[t]->sp->mac);
+		fprintf(fptr,  "(Continuous = %d\tInteger = %d\tBinary = %d)\n", prob[t]->sp->mac - prob[t]->sp->numInt - prob[t]->sp->numBin, prob[t]->sp->numInt, prob[t]->sp->numBin);
+		fprintf(fptr,  "Number of constraints              = %d\n", prob[t]->sp->mar);
+		if ( prob[t]->num->numRV != 0 ) {
+			fprintf(fptr,  "Number of random variables (omega) = %d\t\t", prob[t]->num->numRV);
+			fprintf(fptr,  "(a_t = %d; b_t = %d; c_t = %d; d_t = %d; A_t = %d; B_t = %d; C_t = %d; D_t = %d)\n", prob[t]->num->rvaOmCnt, prob[t]->num->rvbOmCnt, prob[t]->num->rvcOmCnt, prob[t]->num->rvdOmCnt,
+					prob[t]->num->rvAOmCnt, prob[t]->num->rvBOmCnt, prob[t]->num->rvCOmCnt, prob[t]->num->rvDOmCnt);
+		}
+		else
+			fprintf(fptr,  "Number of random variables (omega) = 0\n");
+	}
+	fprintf(fptr, "====================================================================================================================================\n");
+
+}//printDecomposeSummary()

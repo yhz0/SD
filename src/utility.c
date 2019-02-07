@@ -1,706 +1,628 @@
-/***********************************************************************\
-**
- ** utility.c
- **
- ** This file contains miscellaneous functions needed for coding the 
- ** SD algorithm.
- **
- ** one_norm()
- ** equal_arr()
- ** expand_vect()
- ** reduce_vect()
- ** print_vect()
- ** print_sparse_vect()
- ** print_sparse_matrix()
- ** print_num()
- ** PIxR()
- ** PIxT()
- ** TxX()
- ** compute_Mu()
- ** History:
- **   ?? Oct 1991 - <Jason Mai> - created.
- **   14 Dec 1991 - <Jason Mai> - prepared for testing / compilation.
- **   25 Feb 1992 - <Jason Mai> - changed structures.
- **   Should NOT be used without the consent of either Suvrajeet Sen or
- **   Jason Mai
- **
- **
- \***********************************************************************/
-
-#include "prob.h"
-#include "utility.h"
-#include "solver.h"
-#include "sdconstants.h"
-#include "log.h"
-#include "sdglobal.h"
-
 /*
- ** This function calculates the 1-norm (here, the sum of the absolute
- ** value of all elements in the array) of any array of doubles passed to
- ** it.  It returns the 1-norm.
+ * utility.c
+ *
+ *  Created on: Apr 20, 2014
+ *      Author: Harsha Gangammanavar
  */
-double one_norm(double *a, int len)
-{
-	int cnt;
-	double sum;
+
+#include "utils.h"
+
+extern long MEM_USED;
+
+FILE *openFile(string outputDir, string fname, char *mode) {
+	FILE *fptr;
+	char buffer[2*BLOCKSIZE];
+
+	strcpy(buffer, outputDir);
+	strcat(buffer, fname);
+
+	fptr = fopen(buffer, mode);
+	if ( fptr == NULL ) {
+		fprintf(stderr, "failed to open file %s", fname);
+		return NULL;
+	}
+
+	return fptr;
+}//END openFile()
+
+void createOutputDir(string outputDir, string algoName, string probName) {
+	struct stat st;
+	char buffer[2*BLOCKSIZE];
+
+	strcat(outputDir,algoName);
+	strcat(outputDir,"/");
+	if ( stat(outputDir, &st) ) {
+		sprintf(buffer, "mkdir %s", outputDir);
+		system(buffer);
+	}
+	strcat(outputDir, probName);
+	strcat(outputDir, "/");
+	if ( stat(outputDir, &st) ) {
+		sprintf(buffer, "mkdir %s", outputDir);
+		system(buffer);
+	}
+	else {
+		sprintf(buffer, "rm -r %s*", outputDir);
+		system(buffer);
+	}
+
+}//END createOutputDir()
+
+void errMsg(string type, string place, string item, int quit){
+	fprintf(stderr, "\nError :: Type - %s;  Function - %s(); Item - %s\n", type, place, item);
+	if (quit)
+		exit(1);
+}//err_msg()
+
+/* The function getLine() reads an input line, checks its length, and determines the appropriate parsing function to call. In the case of a line consisting of only a single carriage return, the function
+ * continues to read in lines until a string of non_zero length or an EOF is encountered. Upon return of fields from the parsing functions, each field will be sent to remove_spaces for the removal of all
+ * blank spaces.  The getLine function then returns control to the calling function. */
+int getLine(FILE **input, string *fields, char *type, int *numFields) {
+	char 	input_str[BLOCKSIZE], *strptr, *token;
+	long	len = 0, n, stat;
+
+	input_str[0] = '*';
+
+	/*  test for and skip over empty lines and comments  */
+	while (len <= 1 || input_str[0] == '*') {
+		strptr = fgets(input_str, 10000, *input);
+		if (strptr == NULL)
+			return 1;
+		len = strlen(input_str);
+	}
+
+	/*  identify type of input string (title or field)  */
+	if (input_str[0] >= '0' && input_str[0] <= 'Z') {
+		/* input string is title string, marked by type = 't' */
+		sscanf(input_str, "%s %s", fields[0], fields[1]);
+		type[0] = 't';
+		n = 2;
+	}
+	else {
+		/* input string is field string, marked by type = 'f' */
+		token = strtok(input_str, " \t");
+		n = 0;
+		while( token != NULL ) {
+			strcpy(fields[n++], token);
+			token = strtok(NULL, " \t");
+		}
+		type[0] = 'f';
+	}
+
+	(*numFields) = n;
+	for ( n = 0; n < (*numFields); n++ ) {
+		stat = removeSpaces(fields[n]);
+		if ( stat == 0 ) {
+			(*numFields)--;
+		}
+	}
+
+	return 0;
+}//END getLine()
+
+/* The function removeSpace() removes additional spaces from a	string. This function will be used after an input string has been broken into its appropriate fields according to column values. */
+int removeSpaces (char *field) {
+	char *p, *q, len = 0;;
+
+	p = field;
+	q = p;
+	while (*p != '\0' && *p != '\n') {
+		if (*p >= 33) {
+			*q++ = *p++;
+			len++;
+		}
+		else
+			p++;
+	}
+	*q = '\0';
+
+	return len;
+}//END removeSpaces
+
+void trPrint(string routine, int type){
+	if ( type == 1 )
+		printf("Entering :: %s()\n", routine);
+	else
+		printf("Exiting  :: %s()\n", routine);
+}//END trPrint()
+
+void *log_alloc(char *string, void *return_ptr, int size) {
+	MEM_USED += size;
+	return return_ptr;
+}//END log_alloc()
+
+
+void *log_realloc(char *string, void *free_ptr, void *alloc_ptr, int size) {
+	MEM_USED += size;
+	return alloc_ptr;
+}//END log_realloc()
+
+
+double str2float(char *string){
+	double val;
+	sscanf(string, "%lf", &val);
+	return val;
+}//END str_to_float()
+
+int str2int(char *string) {
+	int val;
+	sscanf(string, "%d", &val);
+	return val;
+}//END str2int()
+
+/* This function returns the minimum number of bits needed to represent a given number. */
+int getNumBits(int num) {
+  int 	hi_bit = 1;
+  int 	numBits;
+
+  for (numBits = 0; hi_bit <= num; numBits++)
+    hi_bit = hi_bit << 1;
+
+  return numBits;
+}//END getNumBits()
+
+
+double oneNorm(vector a, int len) {
+	int		cnt;
+	double	sum;
 
 	sum = 0.0;
 	for (cnt = 0; cnt < len; cnt++)
-	{
 		sum += DBL_ABS(a[cnt]);
-	}
 
 	return sum;
-}
+}//END oneNorm()
 
-/*
- ** This function compares two arrays of doubles (assumed to be the same
- ** length) element by element to determine whether or not the are equal
- ** up to a certain tolerance.  It returns TRUE if the arrays are
- ** equal; FALSE otherwise.  Note that if the zeroth element is
- ** the 1-norm of the vector, it will be checked first.  (It assumes
- ** that the vector is one element larger than _len_, to accomodate
- ** the 1-norm).
- ** 
- ** The tolerance is relative to the size of the numbers... so it 
- ** represents the percentage of the 1-norm up to which j
- */
-BOOL equal_arr(double *a, double *b, int len, double tolerance)
-{
-	int cnt;
+double twoNorm(vector a, vector b, int len) {
+	int 	cnt;
+	double	norm = 0.0;
 
-	for (cnt = 0; cnt <= len; cnt++)
-		if (DBL_ABS(a[cnt] - b[cnt]) > DBL_ABS(tolerance * a[cnt]))
-			return FALSE;
-
-	return TRUE;
-}
-
-/*
- ** Are functions passing in len or len+1 ???
- */
-
-/*
- ** This function duplicates the array passed to it by copying it
- ** into a second array (assumed of to be the right length) passed to it.
- ** The 1-norms are assumed to take up the zeroth position in the
- ** first array, and are not counted in the _len_ parameter.
- void copy_arr(double *a, double *b, int len)
- {
- int 		i;
-
- for (i = 0; i <= len; i++)
- b[i] = a[i];
- }
- */
-
-/*
- ** This function, like copy_arr, duplicates an array passed to it.
- ** However, it allocates space for the new copy, fills it, and returns
- ** a pointer to the copy, rather than just filling it.  As usual,
- ** the _len_ parameter does not include the 1-norm, assumed in position 0.
- */
-double *duplic_arr(double *a, int len)
-{
-	int i;
-	double *b;
-
-	if ((b = arr_alloc(len+1, double)))
-	{
-		for (i = 1; i <= len; i++)
-			b[i] = a[i];
-		b[0] = one_norm(b + 1, len);
-	}
+	if (b != NULL)
+		for (cnt = 1; cnt <= len; cnt++ )
+			norm += pow((a[cnt]-b[cnt]), 2);
 	else
-		err_msg("Allocation", "duplic_arr", "b");
 
-	return b;
-}
+	norm = sqrt(norm);
+	return norm;
+}//END twoNorm()
 
-/*
- ** This function expands a sparse vector into a full vector.  Each
- ** (non-zero) element in the sparse vector is placed in its appropriate
- ** place in the full vector, and the rest of the positions are filled
- ** with zeroes.  The function returns a pointer to a dynamically 
- ** allocated array containing the full vector.  
- */
-vector expand_vect(double *s_vect, int *row, int num_elem, int length)
-{
-	int cnt;
-	vector new_vect;
+void calcMeanVariance(vector x, int lenX, double *mean, double *variance) {
+    double 	temp;
+    int 	cnt;
 
-	if (!(new_vect = arr_alloc(length+1, double)))
-		err_msg("Allocation", "expand_vect", "new_vect");
+    temp = 0.0;
+    (*variance) = 0.0; (*mean) = x[0];
+    for (cnt = 1; cnt < lenX; cnt++) {
+        temp = (*mean);
+        (*mean) = (*mean) + (x[cnt] - (*mean)) / (double) (cnt + 1);
+        (*variance) = (1 - 1 / (double) cnt) * (*variance) + (cnt + 1) * ((*mean) - temp) * ((*mean) - temp);
+    }
 
-	for (cnt = 0; cnt <= length; cnt++)
-		new_vect[cnt] = 0;
+}//END calcVariance()
 
-	for (cnt = 1; cnt <= num_elem; cnt++)
-		new_vect[row[cnt]] = s_vect[cnt];
-	new_vect[0] = one_norm(new_vect + 1, length); /* = s_vect[0]; */
+double vXv(vector a, vector b, intvec idxCol, int len) {
+	double ans = 0.0;
+	int n;
 
-	return new_vect;
-}
+	if(idxCol == NULL)
+		for ( n = 1; n <= len; n++ )
+			ans += a[n]*b[n];
+	else
+		for (n = 1; n <= len; n++ )
+			ans += a[n]*b[idxCol[n]];
 
-/*
- ** This function compresses a full vector into a sparse vector, 
- ** according to the array of row coordinates passed to it.  It pulls
- ** out only the values stored at the locations referenced by row. 
- ** It assumes that the final length of the vector is known ahead 
- ** of time! (this is always the case for SD).  It returns a pointer 
- ** to a dynamically allocated array containing the sparse vector.
- ** Note: the zeroth element still contains the 1-norm!
- */
-double *reduce_vect(double *f_vect, int *row, int num_elem)
-{
-	int cnt;
-	double *s_vect;
+	return ans;
+}//END vXv()
 
-	if (!(s_vect = arr_alloc(num_elem+1, double)))
-		err_msg("Allocation", "reduce_vect", "s_vect");
+double vXvSparse(vector v, sparseVector *vSparse){
+	int		cnt;
+	double 	ans;
+
+	ans = 0.0;
+	for (cnt = 1; cnt <= vSparse->cnt; cnt++)
+		ans += vSparse->val[cnt] * v[vSparse->col[cnt]];
+
+	return ans;
+}//END vXvSparse()
+
+vector MSparsexvAdd(sparseMatrix *M, vector v, vector ans){
+	int	cnt;
+
+	for (cnt = 1; cnt <= M->cnt; cnt++)
+		ans[M->row[cnt]] += M->val[cnt] * v[M->col[cnt]];
+
+	return ans;
+}//END MSparsexv()
+
+vector MSparsexvSub(sparseMatrix *M, vector v, vector ans){
+	int	cnt;
+
+	for (cnt = 1; cnt <= M->cnt; cnt++)
+		ans[M->row[cnt]] -= M->val[cnt] * v[M->col[cnt]];
+
+	return ans;
+}//END MSparsexvSub()
+
+vector vxMSparse(vector v, sparseMatrix *M, int len) {
+	int		cnt;
+	vector	ans;
+
+	if(!(ans = (vector) arr_alloc(len+1, double)))
+		errMsg("allocation", "vxMSparse", "ans", 1);
+
+	for (cnt = 1; cnt <= M->cnt; cnt++)
+		ans[M->col[cnt]] += v[M->row[cnt]] * M->val[cnt];
+	ans[0] = oneNorm(ans+1, len);
+
+	return ans;
+}//END PIxT()
+
+void vPlusv(vector a, vector b, double mult, int len){
+	int 	cnt;
+
+	for ( cnt = 1; cnt <= len; cnt++ )
+		a[cnt] += mult*b[cnt];
+	a[0] = oneNorm(a+1, len);
+
+}//END vPlusv()
+
+double smooth(double new, double old, double factor) {
+	return factor*new + (1-factor)*old;
+}//END smooth();
+
+vector reduceVector(vector f_vect, intvec row, int num_elem){
+	int		cnt;
+	double 	*s_vect;
+
+	if(!(s_vect = (vector) arr_alloc(num_elem+1, double)))
+		errMsg("allocation", "reduceVector", "s_vect", 1);
 
 	for (cnt = 1; cnt <= num_elem; cnt++)
 		s_vect[cnt] = f_vect[row[cnt]];
-	s_vect[0] = one_norm(s_vect + 1, num_elem);
+	s_vect[0] = oneNorm(s_vect+1, num_elem);
 
 	return s_vect;
-}
+}//END reduceVector()
 
-/* CALLER: DONT FORGET TO FREE THE ORIGINAL FULL VECTOR !! !! !! !! */
+vector expandVector(vector red, intvec col, int redElems, int expElems){
+	int 	n;
+	vector 	exp;
 
-void print_num(sdglobal_type* sd_global, num_type *num)
-{
-	printf("mast_rows:%d\t\tmast_cols:%d\n", num->mast_rows, num->mast_cols);
-	printf("sub_rows:%d\t\tsub_cols:%d\t\trv:%d\n", num->sub_rows,
-			num->sub_cols, num->rv);
-	printf("rv_rows:%d\t\trv_cols:%d\t\trv_R:%d\t\trv_T:%d\t\trv_g:%d\t\trv_W:%d\n", num->rv_rows,
-			num->rv_cols, num->rv_R, num->rv_T, num->rv_g, num->rv_W);
-	printf("nz_cols:%d\t\tmax_cuts:%d\t\tmin_iter:%d\n", num->nz_cols,
-			num->max_cuts, sd_global->config.MIN_ITER);
-	printf("MIN_ITER: %d\n\n", sd_global->config.MIN_ITER);
-	printf(
-			"Notation:\n'+':new incumbent solution found.\n'<':in-sample test fails.\n'>':in-sample test succeeds.\n");
-    if (num->rv_W > 0)
-		err_msg("Random W not supported!", "print_num", "num->rv_W");
-}
+	if (!(exp = (vector) arr_alloc(expElems+1, double)) )
+		errMsg("allocation", "expandVector", "expanded vector", 0);
 
-/*
- ** Assumes 1-norm is stored at position 0
- */
-void print_vect(vector X, int size, char *string)
-{
-	fprint_vect(stdout, X, size, string);
-}
+	for (n = 1; n <= redElems; n++ )
+		exp[col[n]] = red[n];
+	exp[0] = oneNorm(exp+1, expElems);
 
-/* This one prints to a file / stream, not just to the screen */
-void fprint_vect(FILE *fptr, vector X, int size, char *string)
-{
-	int cnt;
-	fprintf(fptr, "Vector %s :: ", string);
-	for (cnt = 0; cnt <= size; cnt++)
-		fprintf(fptr, "%.20f ", X[cnt]);
-	fprintf(fptr, "\n");
-}
+	return exp;
+}//END expandVector
 
-/*
- ** Assumes 1-norm is stored at position 0
- */
-void print_sparse_vect(sparse_vect *V, char *string)
-{
-	int cnt;
+BOOL equalVector(vector a, vector b, int len, double tolerance) {
+	int		cnt;
 
-	printf("\nSparse Vect %s (%d)::", string, V->cnt);
-	for (cnt = 0; cnt <= V->cnt; cnt++)
-		printf("%f ", V->val[cnt]);
-	printf("\nSparse Vect Rows :: ");
-	for (cnt = 0; cnt <= V->cnt; cnt++)
-		printf("%d ", V->row[cnt]);
-	printf("\n");
-}
-
-/*
- ** Assumes 1-norm is stored at position 0
- */
-void print_sparse_matrix(sparse_matrix *V, char *string)
-{
-	int cnt;
-
-	printf("\nSparse matrix %s (%d)::", string, V->cnt);
-	for (cnt = 0; cnt <= V->cnt; cnt++)
-		printf("%f ", V->val[cnt]);
-	printf("\nSparse matrix Rows :: ");
-	for (cnt = 0; cnt <= V->cnt; cnt++)
-		printf("%d ", V->row[cnt]);
-	printf("\nSparse matrix cols :: ");
-	for (cnt = 0; cnt <= V->cnt; cnt++)
-		printf("%d ", V->col[cnt]);
-	printf("\n");
-}
-
-/* 
- ** This function multiplies a full vector (PI) times a sparse vector
- ** (R) to produce a scalar.  Thus, the first vector is assumed to be
- ** a row, and the second a column.  _num_ specifies the number of 
- ** elements in the second, sparse vector, while _row_ specifies the
- ** row number of the non-zero elements of the sparse vector.
- ** It is assumed that pi_k and R have 1-norms occupying position 0.
- */
-double PIxR(vector pi_k, sparse_vect *R)
-{
-	int cnt;
-	double pi_R;
-
-	pi_R = 0.0;
-	for (cnt = 1; cnt <= R->cnt; cnt++)
-		pi_R += R->val[cnt] * pi_k[R->row[cnt]];
-
-	return pi_R;
-}
-
-/*
- ** This function multiplies a full column vector (PI) times a sparse
- ** matrix (T) to produce a full vector.  _row_ specifies the row number
- ** of each (non-zero) element in the sparse matrix, while _num_ specifies
- ** the number of these elements.  It returns a pointer to a dynamically
- ** allocated array containing the answer (its size is specified with the 
- ** _length_ parameter, equal to the number of columns in PI).  Note that 
- ** the zeroth element of the array is set to the 1-norm of the vector. 
- ** It is also assumed that both pi_k and T have 1-norms at location 0.
- */
-vector PIxT(vector pi_k, sparse_matrix *T, int length)
-{
-	int cnt;
-	vector pi_T;
-
-	if (!(pi_T = arr_alloc(length+1, double)))
-		err_msg("Allocation", "PIxT", "pi_T");
-    
-    
-//#pragma omp parallel for private(cnt, a) num_threads(2)
-//    for (cnt = 0; cnt <= length; cnt++){
-//        a[cnt] = 0;
-//    }
-    
-//#pragma omp parallel for private(cnt, temp)
-//#pragma omp parallel for private(cnt,temp) shared(pi_T) num_threads(1)
-    for (cnt = 0; cnt <= length; cnt++){
-        pi_T[cnt] = 0;}
-
-//#pragma omp parallel for private(cnt)
-	for (cnt = 1; cnt <= T->cnt; cnt++){
-		pi_T[T->col[cnt]] += pi_k[T->row[cnt]] * T->val[cnt];
-    }
-
-	pi_T[0] = one_norm(pi_T + 1, length);
-
-	return pi_T;
-}
-
-/*
- ** This function mulitplies a sparse matrix times a full column
- ** vector, to produce a full column vector.  The result of each
- ** multiplication is subtracted from the _ans_ vector in the 
- ** appropriate location (it is assumed to have already been allocated 
- ** and initialized with desired values).  It assumes the 0th element
- ** is reserved for the 1-norm, in the answer, the T sparse vector,
- ** and the X vector.
- */
-vector TxX(sparse_matrix *T, vector X, vector ans)
-{
-	int cnt;
-
-	for (cnt = 1; cnt <= T->cnt; cnt++)
-		ans[T->row[cnt]] -= T->val[cnt] * X[T->col[cnt]];
-
-	return ans;
-}
-
-/* This function will return the positive value of A * X */
-vector TxX_plus(sparse_matrix *T, vector X, vector ans)
-{
-	int cnt;
-
-	for (cnt = 1; cnt <= T->cnt; cnt++)
-		ans[T->row[cnt]] += T->val[cnt] * X[T->col[cnt]];
-
-	return ans;
-}
-
-/*
- ** This function multiplies two vectors to produce a scalar.
- ** (thus, it assumes a row then a column vector are passed)
- ** The 0th element, as usual, is reserved for the 1-norm; however,
- ** the routine does NOT fill this location.
- */
-double CxX(vector c, vector x, int len)
-{
-	int cnt;
-	double sum;
-
-	sum = 0.0;
 	for (cnt = 1; cnt <= len; cnt++)
-		sum += c[cnt] * x[cnt];
-
-	return sum;
-}
-
-BOOL encode(int *plain, one_key *key, int *cipher, int len)
-{
-	int i;
-
-	for (i = 0; i < len; i++)
-		cipher[key[i].element] |= plain[i] << key[i].shift;
-
-	return TRUE;
-}
-
-BOOL decode(int *cipher, one_key *key, int *plain, int len)
-{
-	int i;
-
-	for (i = 0; i < len; i++)
-		plain[i] = (cipher[key[i].element] >> key[i].shift) & key[i].mask;
-
-	return TRUE;
-}
-
-/*
- ** This function initializes a key to be used when encoding/decoding
- ** arrays whose (integer) elements have a discrete & finite range,
- ** specified within the array parameter _ranges_.  The created key 
- ** (which may be used by encode() and decode()) is assumed to be of
- ** length _num_ranges_.  The return value specifies the number of 
- ** integers which will be required for the cipher array.
- */
-int form_key(one_key *key, int *ranges, int num_ranges)
-{
-	int cnt, elem; /* counters for the loops */
-	int num_bits; /* # of bits needed to store a given range */
-	int num_cipher; /* # of ints being used in cipher array */
-	int *used_bits; /* # bits left in each int of cipher array */
-	BOOL not_done;
-
-	/* Note: There can't be more cipher ints than ranges to be encoded. */
-	used_bits = arr_alloc(num_ranges, int); /* initialized to zero */
-
-	/* 
-	 ** For each range (corresponding to a position in the plain array)
-	 ** initialize a key structure describing how to encode/decode it.
-	 */
-
-#ifdef CAL_CHECK
-	printf("**********Start forming keys**********\n");
-#endif
-
-	for (cnt = 0; cnt < num_ranges; cnt++)
-	{
-		/* Find out how many bits this range is going to need */
-		num_bits = get_num_bits(ranges[cnt]);
-
-#ifdef CAL_CHECK
-		printf("cnt = %d\n",cnt);
-		printf("num_bits = %d\n",num_bits);
-#endif
-
-		/*
-		 ** Find an int in the cipher array which has room for
-		 ** the number of bits required for this range.
-		 */
-		not_done = TRUE;
-		for (elem = 0; not_done && elem < num_ranges; elem++)
-		{
-#ifdef CAL_CHECK
-			printf("elem = %d;\n",elem);
-			printf("used_bits[%d] = %d\n",elem,used_bits[elem]);
-#endif
-			if (used_bits[elem] + num_bits <= MAX_BITS)
-			{
-				key[cnt].element = elem; /* range is in this int */
-				key[cnt].shift = used_bits[elem]; /* range is displaced in int */
-				key[cnt].mask = (1 << num_bits) - 1; /* sub-pattern within int */
-				used_bits[elem] += num_bits; /* do accounting for int */
-				not_done = FALSE;
-#ifdef CAL_CHECK
-				printf("key[%d].element = %d;\tkey[%d].shift = %d;\tkey[%d].mask = %d;\tused_bits[%d]=%d;\n",
-						cnt,key[cnt].element,cnt,key[cnt].shift,cnt,key[cnt].mask,elem,used_bits[elem]);
-#endif
-			}
-#ifdef CAL_CHECK
-			printf("----------------\n");
-#endif
-		}
-	}
-
-	for (num_cipher = 0; used_bits[num_cipher] > 0; num_cipher++)
-		; /* count the number of ints used to encode all the ranges */
-
-#ifdef CAL_CHECK
-	for (cnt=0; cnt<num_ranges; cnt++)
-	{
-		printf("used_bits[%d] = %d\n",cnt,used_bits[cnt]);
-	}
-	printf("num_cipher = %d;\n",num_cipher);
-	printf("**********Stop forming keys**********\n");
-#endif
-
-	mem_free(used_bits);
-	return num_cipher;
-}
-
-/*
- ** This function returns the minimum number of bits needed to represent
- ** a given number, passed as the parameter _num_.
- */
-int get_num_bits(int num)
-{
-	int hi_bit = 1;
-	int num_bits;
-
-	for (num_bits = 0; hi_bit <= num; num_bits++)
-		hi_bit = hi_bit << 1;
-#ifdef CAL_CHECK
-	printf("num_bits: %d\n",num_bits);
-#endif
-	return num_bits;
-}
-
-/*
- ** This function converts an integer into a character string and copies it
- ** into _string_ starting at location _beg_.   _max_ specifies the
- ** greatest integer expected for the _num_ parameter, and thus determines
- ** the number of characters needed to store the integer.
- */
-void filename_number(char *string, int beg, int max, int num)
-{
-	int cnt;
-	int place;
-
-	cnt = 0;
-	for (place = max; place >= 1; place /= 10)
-	{
-		string[beg + cnt] = '0' + (num) / place % 10;
-		cnt++;
-	}
-
-	printf("\n\nfilename_number::%s.\n\n", string);
-}
-
-/***********************************************************************\
- ** This function compute the reduced cost of every second stage 
- ** variables. They will be used to calculate the Mu x R and then added  
- ** to the Pi x R.
- \***********************************************************************/
-/*added by Yifan to update _PixR_*/
-double compute_Mu(one_problem *p, int sub_cols)
-{
-	int i;
-	double Mu_R;
-
-	vector dj = NULL;
-	dj = (double *) malloc((sub_cols + 1) * sizeof(double));
-	if (dj == NULL)
-	{
-		fprintf(stderr, "No memory for solution dj.\n");
-		return 1;
-	}
-
-	get_dual_slacks(dj, p, NULL, sub_cols);
-
-	Mu_R = MuxR(p, sub_cols, dj);
-
-	if (0)
-	{
-		for (i = 0; i <= sub_cols; i++)
-		{
-			printf("***This is reduced cost for y[%d]: %+f\n", i, dj[i]);
-		}
-	}mem_free(dj);
-	return Mu_R;
-
-}
-
-/***********************************************************************\
- ** This function obtains the basis infomation of variables for example basis 
- ** or nonbasis at lowerbound or nonbasis at higher bound. Then return   
- ** the value of Mu x R.
- \***********************************************************************/
-/*added by Yifan to update _PixR_*/
-double MuxR(one_problem *p, int sub_cols, vector dj)
-{
-	int j;
-	int *cstat = NULL;
-	double *y = NULL;
-	double MuR = 0;
-	char *basismsg;
-	cstat = (int *) malloc((sub_cols + 1) * sizeof(int));
-	y = (double *) malloc((sub_cols + 1) * sizeof(double));
-
-	get_basis(p, cstat + 1, NULL); /* 2011.10.30 */
-	get_x(p, y + 1, 0, sub_cols - 1); /* 2011.10.30 */
-
-	if (0)
-	{
-		/* Write out the solution */
-
-		for (j = 1; j <= sub_cols; j++)
-		{
-			printf("y[%d] = %17.10g", j, y[j]);
-			if (cstat != NULL)
-			{
-				switch (cstat[j])
-				{
-				case AT_LOWER:
-					basismsg = "Nonbasic at lower bound";
-					break;
-				case BASIC:
-					basismsg = "Basic";
-					break;
-				case AT_UPPER:
-					basismsg = "Nonbasic at upper bound";
-					break;
-				case FREE_SUPER:
-					basismsg = "Superbasic, or free variable at zero";
-					break;
-				default:
-					basismsg = "Bad basis status";
-					break;
-				}
-				printf("  %s   %d", basismsg, cstat[j]);
-			}
-			printf("\n");
-		}
-
-	}
+		if ( DBL_ABS(a[cnt] - b[cnt]) > tolerance )
+			return FALSE;
     
-	/*added by Yifan to enable parallel computation*/
-//#pragma omp parallel for private(j) shared(MuR)
-	for (j = 1; j <= sub_cols; j++)
-	{
-		if (cstat != NULL)
-		{
-			switch (cstat[j])
-			{
-			case AT_LOWER:
-                //#pragma omp atomic
-				MuR += dj[j] * y[j];
-				break;
-			case AT_UPPER:
-                //#pragma omp atomic
-				MuR += dj[j] * y[j];
-				break;
-			default:
-				break;
-			}
-		}
+	return TRUE;
+}//END equalVector()
+
+BOOL equalIntvec(intvec a, intvec b, int len) {
+	int		cnt;
+
+	for (cnt = 1; cnt <= len; cnt++)
+		if ( a[cnt] != b[cnt] )
+			return FALSE;
+
+	return TRUE;
+}//END equalIntvec()
+
+BOOL equalLongIntvec(unsigned long *a, unsigned long *b, int len) {
+	int		cnt;
+
+	for (cnt = 1; cnt <= len; cnt++)
+		if ( a[cnt] != b[cnt] )
+			return FALSE;
+
+	return TRUE;
+}//END equalLongIntvec()
+
+BOOL isZeroVector(vector a, int len, double tolerance) {
+	int		cnt;
+
+	for (cnt = 0; cnt < len; cnt++) {
+		if ( DBL_ABS(a[cnt]) >= tolerance )
+			return FALSE;
+//		else
+//			a[cnt] = 0.0;
 	}
 
-	mem_free(y);
-	mem_free(cstat);
+	return TRUE;
+}//END isZeroVector()
 
-	return MuR;
-}
+/*This function will check if a vector is integer with a predefined gap */
+BOOL isInteger(vector x, int length, int startIdx, int endIdx, double tolerance){
+	int i;
 
-/*
- ** This function calculate the variance of the 
- ** vector x.
- */
-double calc_var(sdglobal_type* sd_global, double *x, double *mean_value,
-		double *stdev_value, int batch_size)
-{
-	double mean, vari, temp;
-	int count, length;
-	double stdev;
-	stdev = 10000000.0;
-	temp = 0.0;
-	mean = x[0];
-	vari = 0.0;
+	for (i = startIdx+1; i < endIdx; i++)
+		if (fabs(x[i] - round(x[i])) > tolerance)
+			return FALSE;
 
-	if (mean_value != NULL)
-	{
-		length = batch_size;
+	return TRUE;
+}//END isInteger()
+
+
+vector duplicVector(vector a, int len) {
+	int		i;
+	vector	b;
+
+	if ((b = (vector) arr_alloc(len+1, double))) {
+		for (i = 1; i <= len; i++)
+			b[i] = a[i];
+		b[0] = oneNorm(b+1, len);
 	}
 	else
-	{
-		length = sd_global->config.SCAN_LEN;
+		errMsg("allocation", "duplicArray", "b", 1);
+
+	return b;
+}//END duplicArray()
+
+intvec duplicIntvec(intvec a, int len) {
+	int		i;
+	intvec	b;
+
+	if ((b = (intvec) arr_alloc(len+1, int))) {
+		for (i = 1; i <= len; i++)
+			b[i] = a[i];
+	}
+	else
+		errMsg("allocation", "duplicArray", "b", 1);
+
+	return b;
+}//END duplicArray()
+
+void copyVector(vector a, vector b, int len, BOOL isOneNorm){
+	int n;
+
+	if (isOneNorm)
+		for ( n = 0; n <= len; n++ )
+			b[n] = a[n];
+	else {
+		for ( n = 1; n <= len; n++ )
+			b[n] = a[n-1];
+		b[0] = oneNorm(b+1, len);
 	}
 
-	for (count = 1; count < length; count++)
-	{
-		temp = mean;
-		mean = mean + (x[count] - mean) / (double) (count + 1);
-		vari = (1 - 1 / (double) count) * vari
-				+ (count + 1) * (mean - temp) * (mean - temp);
+}//END copyVector()
+
+void copyIntvec (intvec a, intvec b, int len) {
+	int n;
+
+	for ( n = 0; n < len; n++ )
+		b[n] = a[n];
+
+}//END copyVector()
+
+void addVectors(vector a, vector b, intvec indices, int len) {
+	int n;
+
+	if ( indices == NULL ) {
+		for ( n = 1; n <= len; n++ )
+			a[n] += b[n];
+		a[0] = oneNorm(a+1, len);
+	}
+	else {
+		for ( n = 1; n <= len; n++ )
+			a[indices[n]] += b[n];
 	}
 
-	if (mean_value != NULL)
-	{
-		*mean_value = mean;
+}//END copy_arr()
+
+void printVector(vector vec, int len, FILE *fptr){
+	int n;
+
+	if ( fptr == NULL ) {
+		for ( n = 1; n <= len; n++ )
+			printf("%4.6lf, ", vec[n]);
+		printf("\n");
 	}
-	if (stdev_value != NULL)
-	{
-		stdev = sqrt(vari / (double) count);
-		*stdev_value = stdev;
+	else {
+		for ( n = 1; n <= len; n++ )
+			fprintf(fptr, "%4.6lf, ", vec[n]);
+		fprintf(fptr, "\n");
 	}
 
-	return vari;
+}//END printVector()
 
-}
+void printVectorWName(vector vec, string *vecName, int len, FILE *fptr){
+	int n;
 
-void calc_mean_stdev(vector *x, vector mean_value, vector stdev_value,
-		int num_element, int batch_size)
-{
-	double ans = 0.0, temp = 0.0;
-	double mean, vari = 0.0, stdev = 10000000;
-	int count, i;
+	for ( n = 1; n <= len; n++ ) {
+		fprintf(fptr, "%s\t\t%4.6lf\n ", vecName[n-1],vec[n]);
+		fprintf(fptr, "\n");
+	}
 
-	for (i = 0; i <= num_element; i++)
-	{
-		mean = x[0][i];
-		vari = 0.0;
-		for (count = 1; count < batch_size; count++)
-		{
-			ans = x[count][i];
-			temp = mean;
-			mean = mean + (ans - mean) / (double) (count + 1);
-			vari = (1 - 1 / (double) count) * vari
-					+ (count + 1) * (mean - temp) * (mean - temp);
+}//END printVectorWName()
+
+void printIntvec(intvec vec, int len, FILE *fptr){
+	int n;
+
+	if (fptr == NULL) {
+		for ( n = 1; n <= len; n++ )
+			printf("%d, ", vec[n]);
+		printf("\n");
+	}
+	else {
+		for ( n = 1; n <= len; n++ )
+			fprintf(fptr, "%d, ", vec[n]);
+		fprintf(fptr, "\n");
+	}
+
+}//END printIntvec()
+
+void printSparseVector(vector vec, intvec indices, int len) {
+	int n;
+
+	for ( n = 1; n <= len; n++ )
+		printf("%4.3lf\t", vec[indices[n]]);
+	printf("\n");
+
+}//END printSparseVector()
+
+void printSparseMatrix(sparseMatrix *V, char *string) {
+	int 	cnt;
+	printf("%s (%d) ::\n\t\n", string, V->cnt);
+	for (cnt = 1; cnt <= V->cnt; cnt++){
+		printf("(%d, %d, %.2f)\t\n", V->row[cnt], V->col[cnt], V->val[cnt]);
+		if ( cnt % 5 == 0 )
+			printf("\n");
+	}
+	printf("\n");
+}// END print_sparseMatrix()
+
+void printLine() {
+
+    printf("-------------------------------------------------------------------------- \n");
+
+}//END printLine
+
+intvec findElems(intvec allElem, int totalElem, int *numUniq){
+	intvec	elemUniq;
+	int		n, m, len;
+
+	if(!(elemUniq = arr_alloc(totalElem+1, int)))
+		errMsg("allocation", "find_cols", "colUniq", 1);
+
+	len = 0;
+	/* Copy over all the distinct non-zero elements of allElem */
+	for ( n = 1; n <= totalElem; n++ ) {
+		if ( allElem[n] > 0 ) {
+			m = 1;
+			while ( m <= len ) {
+				if ( allElem[n] == elemUniq[m] )
+					break;
+				m++;
+			}
+			if ( m == len+1 )
+				elemUniq[++len] = allElem[n];
 		}
-		stdev = sqrt(vari);
-
-		mean_value[i] = mean;
-		stdev_value[i] = stdev;
 	}
 
-}
+	/* Shrink the array down to the number of distinct elements found */
+	elemUniq = (intvec) mem_realloc(elemUniq, (len+1)*sizeof(int));
 
-/* function calculate the supnorm of the input array */
-double sup_norm(vector a, int size)
-{
-  int i;
-  double max, temp;
-  
-  /* Here we assume that the zero-th element is saved for one-norm of the vector  */
-  max = DBL_ABS(a[1]);
-  
-  for (i = 2; i <= size; i++) {
-    temp = DBL_ABS(a[i]);
-    if (temp > max)
-      max = temp;
-  }
-  
-  return max;
-}
+	elemUniq[0] = 0;
+	*numUniq = len;
 
-/* This function calculate the relative difference of two array, and the resulting array
- is stored in the last input array*/
-void rdiff(sdglobal_type *sd_global, double *a, double *b, int size, vector rd)
-{
-  int i;
-  for (i = 0; i <= size ; i++) {
-    if (b[i]<sd_global->config.TOLERANCE && a[i]<sd_global->config.TOLERANCE) {
-      rd[i] = .1 * sd_global->config.TOLERANCE;
+	return elemUniq;
+}//END findElems()
+
+/* The function encodes an integer vector _stream_ of given length _len_ into an unsigned long vector _codeWord_. The _maxValue indicates the maximum value of decoded integer.*/
+unsigned long *encodeIntvec(intvec stream, int len, int wordLength, int maxValue) {
+	unsigned long *codeWord, temp;
+	int j, group, shift, codeLength, numBits;
+
+	numBits = (int) ceil(log2(maxValue));
+	codeLength = ceil((double) numBits*len/ (double) wordLength) + 1;
+
+	if ( !(codeWord = (unsigned long *) arr_alloc(codeLength, unsigned long)))
+		errMsg("allocation", "encodeIntVec", "codeWord", 0);
+
+	for (j = 1; j <= len; j++) {
+		group = numBits*(j-1)/wordLength + 1;
+		shift = wordLength - numBits*(j % wordLength);
+		temp = (unsigned long) stream[j] << shift;
+		codeWord[group] |= temp;
+	}
+
+	return codeWord;
+}//END encodeIntvec()
+
+/* Decode the column and return the total number of 1's */
+intvec decodeIntvec(unsigned long *codeWord, int len, int wordLength, int maxValue) {
+	intvec 	stream;
+	int 	j, group, shift, numBits, mask = 0;
+
+    numBits = (int) ceil(log2(maxValue));
+    for ( j = 0; j < numBits; j++ )
+    	mask = (mask << 1) + 1;
+    stream = (intvec) arr_alloc(len+1, int);
+
+    /* Let's decode phi_col */
+    for (j = 1; j <= len; j++) {
+        group = numBits*(j-1)/wordLength + 1;
+        shift = wordLength - numBits*(j % wordLength);
+        stream[j] = (unsigned long) codeWord[group] >> shift;
+        stream[j] = stream[j] & mask;
     }
-    else{rd[i] = (a[i]-b[i])/b[i];}
-  }
-}
 
+    return stream;
+}//END decodeIntvec()
+
+/* This subroutine extracts elements which are common to the two input integer vectors _a_ and _b_ */
+intvec intvecIntersect(intvec a, intvec b, int lenA, int lenB) {
+	intvec inter;
+	int	cnt, n;
+
+	if ( !(inter = (intvec) arr_alloc(max(lenA, lenB)+1, int)) )
+		errMsg("allocation", "intvecIntersect", "inter", 0);
+
+	cnt = 1;
+	for ( n = 1; n <= lenA; n++ )
+		if ( isElementIntvec(b, lenB, a[n]) )
+			inter[cnt++] = a[n];
+
+	return inter;
+
+}//END intvecIntersect()
+
+/* This subroutine checks to see if a integer scalar is an element of integer vector. If so, the subroutine will return the index. If not, a value of -1 is returned. */
+int isElementIntvec(intvec vec, int lenVec, int elem) {
+	int n = 1;
+
+	while ( n <= lenVec ) {
+		if ( vec[n] == elem )
+			break;
+		n++;
+	}
+
+	if ( n > lenVec )
+		return -1;
+	else
+		return n;
+
+}//END isElementIntvec()
+
+void subVectors(vector a, vector b, intvec indices, int len){
+	int n;
+
+	if ( indices == NULL ) {
+		for ( n = 1; n <= len; n++ )
+			a[n] -= b[n];
+	}
+	else {
+		for ( n = 1; n <= len; n++ )
+			a[indices[n]] -= b[n];
+	}
+	a[0] = oneNorm(a+1, len);
+
+}//END subVectors()
+
+
+void freeSparseMatrix(sparseMatrix *M) {
+
+	if (M->col) mem_free(M->col);
+	if (M->row) mem_free(M->row);
+	if (M->val) mem_free(M->val);
+	mem_free(M);
+
+}//END freeSparseMatrix()
+
+void freeSparseVector(sparseVector *v) {
+
+	if (v->col) mem_free(v->col);
+	if (v->val) mem_free(v->val);
+	mem_free(v);
+
+}//END freeSparseMatrix()
