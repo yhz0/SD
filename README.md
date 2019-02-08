@@ -25,7 +25,7 @@ The implementation of accepts stochastic programs described using the SMPS file 
 For more information about the SMPS file format [here](https://doi.org/10.1137/1.9780898718799.ch2)
 
 ## Installation
-Note: Only support unix-like systems such as OS X and Ubuntu have been tested.
+Note: Only Unix systems have been tested.
 #### Prerequisite: 
   * CPLEX should be available on your machine. Trial version is available [here](http://www-01.ibm.com/software/commerce/optimization/cplex-optimizer/).
   * Git, if you want to directly use the commands below.
