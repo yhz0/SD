@@ -31,21 +31,19 @@ Note: Only support unix-like systems such as OS X and Ubuntu have been tested.
   * Git, if you want to directly use the commands below.
 
 #### Steps
-  1. Download the SD source codes.
-    * `git clone https://github.com/USC3DLAB/SD`
-  2. Edit the makefile in SD/src folder to reflect the CPLEX installation directories on you computer.
-    * `CPLEXDIR = cplex_installation_folder/cplex`
-  3. Compile the code
-    * `cd sd/src && sudo make`
-  4. `cd ../instance && ln -s ../src/sd`
+  1. Download the SD source codes.  
+    * `git clone https://github.com/USC3DLAB/SD`  
+  2. For `v1.0`  
+    * Checkout the version with: `git checkout v1.0`  
+    * Follow instructions in the README file.  
+  3. For `v2.0`  
+    * Change into source directory: `cd SD`  
+    * Check to make sure that the cplex installation directory is correct for your system.  
+    * Compile the code: `make all`  
+  4. Setup a directory to write output files.  
+    * `mkdir spOutput`  
+  5. Execute the algorithm by invoking the executable with three inputs (i) problem name, (ii) directory where the problem files reside, and (iii) directory where you wish output files be written.  
+    * `./twoSD problem_name input_directory_path output_directory_path`  
+    * Example: `./twoSD pgp2 ./spInput ./spOutput'  
 
-
-2. Then excute sd by typing the following into your terminal:
-
-`./sd`
-
-At the prompt, enter an instance name for example: `pgp2`
-
-(note: all instances are stored in the sdinput folder.)
-
-Results will be stored in instance/sdoutput/pgp2. Please check pgp2.detailed_soln.out for solutions and time_sample.out for CPU time and number of samples used.
+A collection of classical 2-SLP problems are included in the `spInput` folder. Results will be stored in `spOutput/problem_name` folder. Please check `pgp2.detailed_soln.out` for solutions and `time_sample.out` for CPU time and number of samples used.
