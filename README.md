@@ -38,7 +38,7 @@ Note: Only support unix-like systems such as OS X and Ubuntu have been tested.
     * Follow instructions in the README file.  
   3. For `v2.0`  
     * Change into source directory: `cd SD`  
-    * Check to make sure that the cplex installation directory is correct for your system.  
+    * Check the `makefile` to make sure that the cplex installation directory is correct for your system.  
     * Compile the code: `make all`  
   4. Setup a directory to write output files.  
     * `mkdir spOutput`  
