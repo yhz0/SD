@@ -44,6 +44,6 @@ Note: Only support unix-like systems such as OS X and Ubuntu have been tested.
     * `mkdir spOutput`  
   5. Execute the algorithm by invoking the executable with three inputs (i) problem name, (ii) directory where the problem files reside, and (iii) directory where you wish output files be written.  
     * `./twoSD problem_name input_directory_path output_directory_path`  
-    * Example: `./twoSD pgp2 ./spInput ./spOutput'  
+    * Example: `./twoSD pgp2 ./spInput ./spOutput`  
 
 A collection of classical 2-SLP problems are included in the `spInput` folder. Results will be stored in `spOutput/problem_name` folder. Please check `pgp2.detailed_soln.out` for solutions and `time_sample.out` for CPU time and number of samples used.
