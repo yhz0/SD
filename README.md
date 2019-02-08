@@ -12,7 +12,7 @@ This software is developed by Jason Mai, Lei Zhao, Yifan Liu, and Harsha Gangamm
 Please report bugs [here on GitHub](https://github.com/USC3DLAB/SD/issues).
 
 ## Version information: 
-`v1.0`: Supports 2-SLPs with randomness in right-hand side and the technology matrix.
+`v1.0`: Supports 2-SLPs with randomness in right-hand side and the technology matrix.  
 `v2.0`: Supports 2-SLPs with randomness in right-hand side vector, the technology matrix and cost coefficient vector.
 
 ## Input file format
