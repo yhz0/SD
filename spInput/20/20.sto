@@ -1,4 +1,4 @@
-STOCH
+STOCH	20
 INDEP         DISCRETE
     RHS       ROW00046   .150000E+02              .500000E+00
     RHS       ROW00046   .250000E+02              .500000E+00

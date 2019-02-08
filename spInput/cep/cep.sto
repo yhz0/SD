@@ -1,4 +1,4 @@
-STOCH         CEP
+STOCH         cep
 INDEP         DISCRETE
     RHS       DEMP1      0                        0.166667
     RHS       DEMP1      600                      0.166667

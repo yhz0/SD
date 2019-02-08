@@ -1,4 +1,4 @@
-STOCH
+STOCH	storm
 INDEP         DISCRETE                                       
     RHS       R0000102      336.8000                   0.2000
     RHS       R0000102      378.9000                   0.2000

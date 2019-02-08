@@ -1,4 +1,4 @@
-STOCH         SSN
+STOCH         ssn
 INDEP         DISCRETE
          RHS   DEM112Z       0.00000           0.47500 
          RHS   DEM112Z       0.12080           0.19000 

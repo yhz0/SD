@@ -1,4 +1,4 @@
-NAME          4NODECARGO
+NAME          4node
 ROWS
  N  OBJ
  L  MLA

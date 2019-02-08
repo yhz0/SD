@@ -1,4 +1,4 @@
-TIME          CEP
+TIME          cep
 PERIODS
     xM1	       FOBJ                    TIME1
     yP1M1     CAPM1                   TIME2
