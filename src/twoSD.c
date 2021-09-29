@@ -72,22 +72,22 @@ void parseCmdLine(int argc, char *argv[], string probName, string inputDir) {
 	if ( argc < 2 ) {
 		printf("Please enter the name of the problem: ");
 		scanf("%s", probName);
-		strcpy(inputDir, "../spInput/");
+		strcpy(inputDir, "spInput/");
 		printf("Using default input directory: %s\n", inputDir);
-		strcpy(outputDir, "../../spOutput/");
+		strcpy(outputDir, "spOutput/");
 		printf("All solution files will be written to the default output directory: %s\n", outputDir);
 	}
 	else if ( argc < 3 ) {
 		strcpy(probName, argv[1]);
-		strcpy(inputDir, "../spInput/");
+		strcpy(inputDir, "spInput/");
 		printf("Using default input directory: %s\n", inputDir);
-		strcpy(outputDir, "../../spOutput/");
+		strcpy(outputDir, "spOutput/");
 		printf("All solution files will be written to the default output directory: %s\n", outputDir);
 	}
 	else if ( argc < 4 ) {
 		strcpy(probName, argv[1]);
 		strcpy(inputDir, argv[2]);
-		strcpy(outputDir, "../../spOutput/");
+		strcpy(outputDir, "spOutput/");
 		printf("All solution files will be written to the default output directory: %s\n", outputDir);
 	}
 	else {
