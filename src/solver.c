@@ -9,7 +9,7 @@
 #include <solver.h>
 
 extern string 	outputDir;
-ENVptr	env;
+ENVptr	env = NULL;
 
 int solveProblem(LPptr lp, string pname, int type, int *status) {
 	int		aggres = 0;

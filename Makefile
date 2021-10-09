@@ -25,10 +25,10 @@ EXECUTABLES :=
 OBJS := $(C_SRCS:.c=.o)
 C_DEPS := $(C_SRCS:.c=.d)
 
-CC  := gcc-5
+CC  := gcc
 LIBS := -lilocplex -lcplex -lpthread -lm -ldl
 INCLUDES := -I$(CPLEXINCDIR) -I$(SUBDIRS)
-CFLAGS := 
+CFLAGS := -Wall
 
 #------------------------------------------------------------
 # All Target

@@ -8,6 +8,7 @@
 #define MTSD_SOLVER_H_
 
 #include <ilcplex/cpxconst.h>
+#include <ilcplex/cplex.h>
 #include <utils.h>
 
 #define		ENVptr			CPXENVptr
