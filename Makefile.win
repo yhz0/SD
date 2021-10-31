@@ -55,7 +55,7 @@ library: $(OBJS) $(USER_OBJS)
 
 # Other Targets
 clean:
-	-$(RM) $(EXECUTABLES)$(OBJS)$(C_DEPS) twoSD
+	-$(RM) $(EXECUTABLES)$(OBJS)$(C_DEPS) twoSD.exe
 	-@echo ' '
 
 .PHONY: all clean dependents
