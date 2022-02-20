@@ -2,6 +2,7 @@
 # SD Book Page 6
 # https://core.isrd.isi.edu/chaise/record/#1/Core:Instance/RID=W17E
 
+using TwoSD
 using CPLEX, JuMP
 using Distributions
 
@@ -81,4 +82,4 @@ end
 
 user_mean = d_bar
 
-# solve(model, split_position, user_mean, mystoc)
+solve_sd(model, split_position, user_mean, mystoc)

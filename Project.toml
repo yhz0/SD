@@ -1,4 +1,4 @@
-name = "StochasticDecomposition"
+name = "TwoSD"
 uuid = "b456d214-984d-4d1c-b0b4-0369579913e9"
 authors = ["YHZ <zhangyih@usc.edu>"]
 version = "0.1.0"

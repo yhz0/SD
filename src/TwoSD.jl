@@ -1,4 +1,4 @@
-module StochasticDecomposition
+module TwoSD
 
 # Includes
 include("SDTypes.jl")
@@ -59,7 +59,6 @@ function solve_sd(model::Model, split_position::Position,
 
     # Build COR
     cor = SDAPI.populateCore(cpx_model.lp, "JuliaExportProblem")
-    # SDAPI.dumpCore(cor) # print
 
     # Use these to define the position translator
     row_map = build_constraint_mapping(model)
@@ -69,7 +68,6 @@ function solve_sd(model::Model, split_position::Position,
     # Build TIM
     split_index = index(split_position)
     tim = SDAPI.buildTwoStageTime(split_index.row, split_index.col)
-    # SDAPI.dumpTime(tim) # print
 
     # Build Stoc
     sample_realization = mystoc()
@@ -86,7 +84,10 @@ function solve_sd(model::Model, split_position::Position,
     mystoc_filler_p = @cfunction($mystoc_filler, Cvoid, (Ptr{Cdouble}, )) 
 
     stoc = SDAPI.buildExtStocType(stoc_numOmega, stoc_row, stoc_col, stoc_mean, mystoc_filler_p)
-    # SDAPI.dumpStoc(stoc)
+
+    SDAPI.dumpCore(cor) # print
+    SDAPI.dumpTime(tim) # print
+    SDAPI.dumpStoc(stoc)
 
     SDAPI.algo(cor, tim, stoc, ".", "JuliaExportProblem")
 end

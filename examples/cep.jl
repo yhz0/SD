@@ -1,7 +1,7 @@
 # CEP
 # Reference: SD Book Page 3
 # https://core.isrd.isi.edu/chaise/record/#1/Core:Instance/RID=W182
-using StochasticDecomposition
+using TwoSD
 using CPLEX, JuMP
 
 # Data section
