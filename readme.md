@@ -37,9 +37,9 @@ This is a Julia interface to SD solver, a program for solving two-stage stochast
 
 This package can be installed under Julia's package manager. It can handle the dependency issue for you.
 
-To avoid CPLEX issues, make sure you have set up CPLEX.jl and JuMP in Julia before you install this package.
+To avoid CPLEX issues, make sure you have set up CPLEX.jl and JuMP correctly in Julia before you install this package.
 
-To install this package in development mode, change your terminal to the current directory. Then go to Julia's package manager (by pressing "]" key in REPL), and type
+To install this package in development mode, change your terminal to the repository. Then open julia; go to Julia's package manager (by pressing "]" key in REPL), and type
 
 ```julia
 dev "."
