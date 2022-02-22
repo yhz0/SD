@@ -39,11 +39,19 @@ This package can be installed under Julia's package manager. It can handle the d
 
 To avoid CPLEX issues, make sure you have set up CPLEX.jl and JuMP correctly in Julia before you install this package.
 
-To install this package in development mode, change your terminal to the repository. Then open julia; go to Julia's package manager (by pressing "]" key in REPL), and type
+To install this package in development mode, change directory to where you placed the repository. Then open julia; go to Julia's package manager (by pressing "]" key in REPL), and type
 
 ```julia
 dev "."
 ```
+
+This will add Julia as a development package. Alternatively, under the package manager, you can type
+
+```julia
+activate .
+```
+
+to temporarily use TwoSD without installing it, but the dependency needs to be handled manually.
 
 ## Example
 
