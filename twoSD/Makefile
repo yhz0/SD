@@ -7,7 +7,7 @@
 #------------------------------------------------------------
 # TODO: Replace with appropriate folder names and system descriptions
 # Location of CPLEX installations and system descriptions
-CPLEXDIR = /opt/ibm/ILOG/CPLEX_Studio1210/cplex
+CPLEXDIR = /opt/ibm/ILOG/CPLEX_Studio201/cplex
 CPLEXLIBDIR   = $(CPLEXDIR)/lib/$(SYSTEM)/$(LIBFORMAT)
 CPLEXINCDIR   = $(CPLEXDIR)/include
 SYSTEM     = x86-64_linux
@@ -32,7 +32,7 @@ CFLAGS := -Wall
 
 #------------------------------------------------------------
 # All Target
-all: twoSD
+all: twoSD library
 
 # Tool invocations
 twoSD: $(OBJS) $(USER_OBJS)
