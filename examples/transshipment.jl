@@ -1,8 +1,10 @@
+# Please see the TwoSD usage on how to set up
+# SD solver.
 using TwoSD
 
 using Distributions, JuMP, CPLEX
 using LinearAlgebra
-
+    
 # Data
 N = 7
 # holding cost
@@ -27,6 +29,8 @@ model = direct_model(CPLEX.Optimizer())
 # Stage 1
 @variable(model, s[1:N] >= 0)
 
+# NO AFF CONSTRAINTS IN STAGE ONE!
+
 # Stage 2
 @variables(model, begin
     e[1:N] >= 0
@@ -47,11 +51,19 @@ end)
 # It is recommended that you formulate the problem in Min
 @objective(model, Min, sum(h*e) + sum(c*T) + sum(p*r))
 
+# Need to specify which constraint/variable splits the first stage
+# and the second stage
 split_position = Position(SUPPLY[1], e[1])
 
+# Seed a random generator for generating the demands
+# This is for demo only. Use a larger seed.
 using Random
 rng = Random.MersenneTwister(1234)
 
+# A function that generates a random scenario.
+# A realization is a Vector of pairs: Position => value
+# Position is constructed by a constraint(row) and a variable(column)
+# If the randomness is on the RHS, replace it with "RHS"
 function mystoc()
     d = rand(rng, d_dist)
     binding = [Position(DEM[i], "RHS") => d[i] for i in 1:N]
@@ -64,4 +76,9 @@ end
 user_mean = copy(mu)
 push!(user_mean, sum(mu))
 
+# Call SD solver
 solve_sd(model, split_position, user_mean, mystoc)
+
+# Now check the confidence interval in the output
+# and the decision in the output file under the same directory
+# in "incumbents.dat"

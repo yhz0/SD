@@ -7,7 +7,7 @@
 #------------------------------------------------------------
 # TODO: Replace with appropriate folder names and system descriptions
 # Location of CPLEX installations and system descriptions
-CPLEXDIR = C:/SOFT/IBM/ILOG/CPLEX_Studio1210/cplex
+CPLEXDIR = C:/SOFT/CPLEX_Studio201/cplex
 CPLEXLIBDIR   = $(CPLEXDIR)/lib/$(SYSTEM)/$(LIBFORMAT)
 CPLEXINCDIR   = $(CPLEXDIR)/include
 SYSTEM     = x64_windows_msvc14
