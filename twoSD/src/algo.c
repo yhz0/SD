@@ -101,23 +101,20 @@ int algo(oneProblem *orig, timeType *tim, stocType *stoc, string inputDir, strin
 	printf("\nSuccessfully completed two-stage stochastic decomposition algorithm.\n");
 
 	/* free up memory before leaving */
-	// if (meanSol) mem_free(meanSol);
-	// freeBatchType(batch);
-	// freeCellType(cell);
-	// freeProbType(prob, 2);
+	if (meanSol) mem_free(meanSol);
+	freeBatchType(batch);
+	freeCellType(cell);
+	freeProbType(prob, 2);
 
-	printf("cell = %p\n", cell);
-	printf("cuts = %p\n", cell -> cuts);
-	printf("fcuts = %p\n", cell -> fcuts);
-	printf("fcutsPool = %p\n", cell -> fcutsPool);
+	// printf("cell = %p\n", cell);
 
 	return 0;
 
 	TERMINATE:
-	// if(meanSol) mem_free(meanSol);
-	// freeBatchType(batch);
-	// freeCellType(cell);
-	// freeProbType(prob, 2);
+	if(meanSol) mem_free(meanSol);
+	freeBatchType(batch);
+	freeCellType(cell);
+	freeProbType(prob, 2);
 	return 1;
 }//END algo()
 

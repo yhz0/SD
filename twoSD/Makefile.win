@@ -29,7 +29,7 @@ C_DEPS := $(C_SRCS:.c=.d)
 # The correct library name can be found under
 # lib/include/x64_windows_msvc14/stat_mdd/.
 CC  := gcc
-LIBS := -lcplex12100
+LIBS := -lcplex2010
 INCLUDES := -I$(CPLEXINCDIR) -I$(SUBDIRS)
 
 # Note that we need -DBUILD_CPXSTATIC on Windows
