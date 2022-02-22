@@ -16,8 +16,10 @@ c = 0.5
 mu = [100.0, 200, 150, 170, 180, 170, 170]
 sigma = [20.0, 50, 30, 50, 40, 30, 50]
 
-# TODO: We truncate the demand at plus or minus 3 sigmas to avoid negative demands
-d_dist = product_distribution([Normal(mu[i], sigma[i]) for i in 1:N])
+# IMPORTANT: We truncate the demand at plus or minus 3 sigmas to avoid negative demands
+d_dist = product_distribution(
+    truncated.(Normal.(mu, sigma), mu - 3*sigma, mu + 3*sigma)
+)
 
 # A direct model is needed to use TwoSD with Julia.
 model = direct_model(CPLEX.Optimizer())
@@ -57,7 +59,9 @@ function mystoc()
     return OneRealization(binding)
 end
 
+# We also need to construct the mean value of the random positions
 # Note the binding is [d1, ..., dn, sum(d)]
 user_mean = copy(mu)
 push!(user_mean, sum(mu))
+
 solve_sd(model, split_position, user_mean, mystoc)
