@@ -22,10 +22,15 @@ const output_path = Ref{String}()
 # Load the SD library and find all the functions
 function __init__()
     # Add current folder and parent to library search path
-    sd_dir_path = joinpath(@__DIR__(), "..", "twoSD")
+    sd_dir_path = joinpath(dirname(@__DIR__()), "twoSD")
     push!(DL_LOAD_PATH, sd_dir_path)
+    # @info DL_LOAD_PATH
 
+    # Try to find libtwosd
     twosd_path = find_library("libtwosd")
+    if isempty(twosd_path)
+        twosd_path = find_library("libtwosd.so")
+    end
     if isempty(twosd_path)
         error("Cannot find twosd library.")
     end

@@ -1,6 +1,6 @@
-# Makefile definitions for CPLEX 12.8
+# Makefile definitions
 #    10 Oct. 2018
-# For Ubuntu 12.04 LTS
+# For Ubuntu / OSX
 # Written by Harsha Gangammanavar
 #------------------------------------------------------------
 
@@ -10,9 +10,17 @@
 CPLEXDIR = /opt/ibm/ILOG/CPLEX_Studio201/cplex
 CPLEXLIBDIR   = $(CPLEXDIR)/lib/$(SYSTEM)/$(LIBFORMAT)
 CPLEXINCDIR   = $(CPLEXDIR)/include
-SYSTEM     = x86-64_linux
 LIBFORMAT  = static_pic
 SUBDIRS := ./src
+
+# System name dependent
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+SYSTEM     = x86-64_linux
+endif
+ifeq ($(UNAME_S),Darwin)
+SYSTEM     = x86-64_osx
+endif
 
 #------------------------------------------------------------
 # Compiler, Linker Selections and Definitions (CC is for c)
