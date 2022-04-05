@@ -95,6 +95,16 @@ int algo(oneProblem *orig, timeType *tim, stocType *stoc, string inputDir, strin
 		fprintf(stdout, "\n------------------------------------------- Average solution ---------------------------------------\n\n");
 		/* Evaluate the average solution */
 		evaluate(sFile, stoc, prob, cell->subprob, batch->avgX);
+
+		/* Write the average solution and compromise solution. */
+		FILE *compXFile, *avgXFile;
+		compXFile = openFile(outputDir, "compromiseX.dat", "w");
+		printVector(batch->compromiseX, prob[0]->num->cols, compXFile);
+		fclose(compXFile);
+
+		avgXFile = openFile(outputDir, "avgX.dat", "w");
+		printVector(batch->avgX, prob[0]->num->cols, avgXFile);
+		fclose(avgXFile);
 	}
 
 	fclose(sFile); fclose(iFile);
@@ -105,8 +115,6 @@ int algo(oneProblem *orig, timeType *tim, stocType *stoc, string inputDir, strin
 	freeBatchType(batch);
 	freeCellType(cell);
 	freeProbType(prob, 2);
-
-	// printf("cell = %p\n", cell);
 
 	return 0;
 
