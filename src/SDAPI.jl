@@ -19,11 +19,18 @@ const config_path = Ref{String}()
 const output_path = Ref{String}()
 
 
+
 # Load the SD library and find all the functions
 function __init__()
+    # System dependent library format name
+    if Sys.iswindows()
+        ext = "dll"
+    else
+        ext = "so"
+    end
     # Add current folder and parent to library search path
     sd_dir_path = joinpath(dirname(@__DIR__()), "twoSD")
-    twosd_path = joinpath(sd_dir_path, "libtwosd." * dlext)
+    twosd_path = joinpath(sd_dir_path, "libtwosd." * ext)
     # Load the library
     twosd = dlopen(twosd_path)
 
