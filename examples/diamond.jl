@@ -3,7 +3,9 @@ using JuMP, CPLEX
 
 # Diamond Example
 # COR section
-model = direct_model(CPLEX.Optimizer())
+model = direct_model(optimizer_with_attributes(
+    CPLEX.Optimizer, CPLEX.PassNames() => true
+))
 
 @variable(model, 0.0 <= x <= 5.0)
 

@@ -27,7 +27,9 @@ J = 4
 I = 3
 
 # COR
-model = direct_model(CPLEX.Optimizer())
+model = direct_model(optimizer_with_attributes(
+    CPLEX.Optimizer, CPLEX.PassNames() => true
+))
 @variables(model, begin    
     x[1:J] >= 0
     z[1:J] >= 0

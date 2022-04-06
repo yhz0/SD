@@ -50,7 +50,9 @@ d_distribution = product_distribution(
 d_bar = mean(d_distribution)
 
 # COR
-model = direct_model(CPLEX.Optimizer())
+model = direct_model(optimizer_with_attributes(
+    CPLEX.Optimizer, CPLEX.PassNames() => true
+))
 
 # stage 1
 @variable(model, x[1:n] >= 0)

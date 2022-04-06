@@ -24,7 +24,9 @@ d_dist = product_distribution(
 )
 
 # A direct model is needed to use TwoSD with Julia.
-model = direct_model(CPLEX.Optimizer())
+model = direct_model(optimizer_with_attributes(
+    CPLEX.Optimizer, CPLEX.PassNames() => true
+))
 
 # Stage 1
 @variable(model, s[1:N] >= 0)

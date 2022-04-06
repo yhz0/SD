@@ -4,7 +4,9 @@ N = 72000
 r = -rand(N)
 s = r .+ 1.0
 
-model = direct_model(CPLEX.Optimizer())
+model = direct_model(optimizer_with_attributes(
+    CPLEX.Optimizer, CPLEX.PassNames() => true
+))
 # Diamond Example
 # IMPORTANT! Only use callbacks in single-threaded mode!
 # Have the user input the variables/constraints in stage order!

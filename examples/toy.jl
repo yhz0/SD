@@ -2,7 +2,9 @@ using JuMP, CPLEX
 
 # Trivial Example
 # COR section
-model = direct_model(CPLEX.Optimizer())
+model = direct_model(optimizer_with_attributes(
+    CPLEX.Optimizer, CPLEX.PassNames() => true
+))
 
 @variable(model, y)
 @constraint(model, s, y >= -1)
