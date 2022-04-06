@@ -23,18 +23,7 @@ const output_path = Ref{String}()
 function __init__()
     # Add current folder and parent to library search path
     sd_dir_path = joinpath(dirname(@__DIR__()), "twoSD")
-    push!(DL_LOAD_PATH, sd_dir_path)
-    # @info DL_LOAD_PATH
-
-    # Try to find libtwosd
-    twosd_path = find_library("libtwosd")
-    if isempty(twosd_path)
-        twosd_path = find_library("libtwosd.so")
-    end
-    if isempty(twosd_path)
-        error("Cannot find twosd library.")
-    end
-
+    twosd_path = joinpath(sd_dir_path, "libtwosd." * dlext)
     # Load the library
     twosd = dlopen(twosd_path)
 
