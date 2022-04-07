@@ -32,9 +32,9 @@ int algo(oneProblem *orig, timeType *tim, stocType *stoc, string inputDir, strin
 	printDecomposeSummary(stdout, probName, tim, prob);
 
 	for ( int rep = 0; rep < config.NUM_REPS; rep++ ) {
-		fprintf(sFile, "\n====================================================================================================================================\n");
+		fprintf(sFile, "\n==================\n");
 		fprintf(sFile, "Replication-%d\n", rep+1);
-		fprintf(stdout, "\n====================================================================================================================================\n");
+		fprintf(stdout, "\n=================\n");
 		fprintf(stdout, "Replication-%d\n", rep+1);
 
 		/* setup the seed to be used in the current iteration */
@@ -86,24 +86,28 @@ int algo(oneProblem *orig, timeType *tim, stocType *stoc, string inputDir, strin
 
 		fprintf(sFile, "\n====================================================================================================================================\n");
 		fprintf(sFile, "\n----------------------------------------- Compromise solution --------------------------------------\n\n");
-		fprintf(sFile, "\n====================================================================================================================================\n");
-		fprintf(sFile, "\n----------------------------------------- Compromise solution --------------------------------------\n\n");
+
+		fprintf(stdout, "\n================================\n");
+		fprintf(stdout, "----- Compromise solution ------\n");
+
 		/* Evaluate the compromise solution */
 		evaluate(sFile, stoc, prob, cell->subprob, batch->compromiseX);
 
 		fprintf(sFile, "\n------------------------------------------- Average solution ---------------------------------------\n\n");
-		fprintf(stdout, "\n------------------------------------------- Average solution ---------------------------------------\n\n");
+
+		fprintf(stdout, "\n================================\n");
+		fprintf(stdout, "----- Average solution ------\n");
 		/* Evaluate the average solution */
 		evaluate(sFile, stoc, prob, cell->subprob, batch->avgX);
 
 		/* Write the average solution and compromise solution. */
 		FILE *compXFile, *avgXFile;
 		compXFile = openFile(outputDir, "compromiseX.dat", "w");
-		printVector(batch->compromiseX, prob[0]->num->cols, compXFile);
+		printVectorWName(batch->compromiseX, orig->cname, prob[0]->num->cols, compXFile);
 		fclose(compXFile);
 
 		avgXFile = openFile(outputDir, "avgX.dat", "w");
-		printVector(batch->avgX, prob[0]->num->cols, avgXFile);
+		printVectorWName(batch->avgX, orig->cname, prob[0]->num->cols, avgXFile);
 		fclose(avgXFile);
 	}
 
@@ -212,22 +216,20 @@ void writeOptimizationSummary(FILE *soln, FILE *incumb, probType **prob, cellTyp
 		fprintf(soln, "First Stage Columns                    : %d\n", prob[0]->num->cols);
 	}
 
-	fprintf(soln, "\n------------------------------------------- Optimization -------------------------------------------\n\n");
+	// fprintf(soln, "\n------------------------------------------- Optimization -------------------------------------------\n\n");
+	fprintf(soln, "\n\nOptimization: \n");
 
-	fprintf(soln, "Algorithm                              : Two-stage Stochastic Decomposition\n");
+	// fprintf(soln, "Algorithm                              : Two-stage Stochastic Decomposition\n");
 	fprintf(soln, "Number of iterations                   : %d\n", cell->k);
 	fprintf(soln, "Lower bound estimate                   : %f\n", cell->incumbEst);
-	fprintf(soln, "Total time                             : %f\n", cell->time.repTime);
-	fprintf(soln, "Total time to solve master             : %f\n", cell->time.masterAccumTime);
-	fprintf(soln, "Total time to solve subproblems        : %f\n", cell->time.subprobAccumTime);
-	fprintf(soln, "Total time in argmax procedure         : %f\n", cell->time.argmaxAccumTime);
-	fprintf(soln, "Total time in verifying optimality     : %f\n", cell->time.optTestAccumTime);
+	// fprintf(soln, "Total time                             : %f\n", cell->time.repTime);
+	// fprintf(soln, "Total time to solve master             : %f\n", cell->time.masterAccumTime);
+	// fprintf(soln, "Total time to solve subproblems        : %f\n", cell->time.subprobAccumTime);
+	// fprintf(soln, "Total time in argmax procedure         : %f\n", cell->time.argmaxAccumTime);
+	// fprintf(soln, "Total time in verifying optimality     : %f\n", cell->time.optTestAccumTime);
 
 	if ( incumb != NULL ) {
 		printVector(cell->incumbX, prob[0]->num->cols, incumb);
 	}
 
 }//END WriteStat
-
-
-
