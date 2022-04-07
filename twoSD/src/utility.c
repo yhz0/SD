@@ -463,8 +463,7 @@ void printVectorWName(vector vec, string *vecName, int len, FILE *fptr){
 	int n;
 
 	for ( n = 1; n <= len; n++ ) {
-		fprintf(fptr, "%s\t\t%4.6lf\n ", vecName[n-1],vec[n]);
-		fprintf(fptr, "\n");
+		fprintf(fptr, "%s\t%4.6lf\n ", vecName[n-1],vec[n]);
 	}
 
 }//END printVectorWName()
