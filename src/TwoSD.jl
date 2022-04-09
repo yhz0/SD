@@ -51,6 +51,73 @@ function initialize_sd()
     SDAPI.readConfig_jl()
 end
 
+# Parse a comma delimited string as numbers.
+# There might be some precision loss during the conversion.
+function parse_solution(s::String)
+    v = split(s, ",")
+    return parse.(Float64, v)
+end
+
+# Load all solutions from a file, one solution on each line
+function load_solution_file(path::String)
+    solutions = Vector{Vector{Float64}}()
+    if !isfile(path)
+        @warn "load_solution_file: $(path) does not exist."
+        return solutions
+    end
+    open(path, "r") do io
+        for line in eachline(io)
+            push!(solutions, parse_solution(line))
+        end
+    end
+    return solutions
+end
+
+# Structure for storing the sd output
+mutable struct SDResult
+    row_map # constraint mapping from jump to index
+    col_map # variable mapping from jump to index
+
+    row_map_r # mapping from index to constraints
+    col_map_r # mapping from index to variables
+
+    incumbentX # incumbent solution
+    compromiseX # compromise solution
+    avgX # average solution
+end
+
+# Reverse key/value pair in a dict
+function reverse_dict(my_dict::Dict)
+    return Dict(value => key for (key, value) in my_dict)
+end
+
+# Load SD output files from current directory.
+function build_result(row_map=nothing, col_map=nothing, basepath = ".")
+    incumbX = load_solution_file(joinpath(basepath, "spOutputincumb.dat"))
+    compromiseX = load_solution_file(joinpath(basepath, "spOutputcompromiseX.dat"))
+    avgX = load_solution_file(joinpath(basepath, "spOutputavgX.dat"))
+
+    row_map_r = row_map === nothing ? nothing : reverse_dict(row_map)
+    col_map_r = col_map === nothing ? nothing : reverse_dict(row_map)
+
+    return SDResult(row_map, col_map, row_map_r, col_map_r, incumbX, compromiseX, avgX)
+end
+
+@enum SDSolutionType IncumbentSolution=1 CompromiseSolution=2 AverageSolution=3
+
+# Get the decision from a given result, with selected type (Incumbent, Compromise, Average)
+function decision(var::VariableRef, type::SDSolutionType=Incumbent, result::SDResult)
+    if type == IncumbentSolution
+        v = result.incumbentX[1]
+    elseif type == AverageSolution
+        v = result.avgX
+    elseif type == CompromiseSolution
+        v = result.compromiseX
+    end
+    index = result.col_map[var]
+    return v[index]
+end
+
 function solve_sd(model::Model, split_position::Position,
     user_mean::AbstractVector{<:AbstractFloat}, mystoc::Function)
     # This is what build should do
@@ -90,7 +157,11 @@ function solve_sd(model::Model, split_position::Position,
     SDAPI.dumpStoc(stoc)
 
     SDAPI.algo(cor, tim, stoc, ".", "JuliaExportProblem")
+
+    result = build_result(row_map, col_map)
+    return result
 end
 
-export Position, OneRealization, solve_sd
+export Position, OneRealization, solve_sd, decision
+export IncumbentSolution, CompromiseSolution, AverageSolution
 end
