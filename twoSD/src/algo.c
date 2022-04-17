@@ -103,11 +103,15 @@ int algo(oneProblem *orig, timeType *tim, stocType *stoc, string inputDir, strin
 		/* Write the average solution and compromise solution. */
 		FILE *compXFile, *avgXFile;
 		compXFile = openFile(outputDir, "compromiseX.dat", "w");
-		printVectorWName(batch->compromiseX, orig->cname, prob[0]->num->cols, compXFile);
+
+		// printVectorWName(batch->compromiseX, orig->cname, prob[0]->num->cols, compXFile);
+		printVector(batch->compromiseX, prob[0]->num->cols, compXFile);
 		fclose(compXFile);
 
 		avgXFile = openFile(outputDir, "avgX.dat", "w");
-		printVectorWName(batch->avgX, orig->cname, prob[0]->num->cols, avgXFile);
+		// printVectorWName(batch->avgX, orig->cname, prob[0]->num->cols, avgXFile);
+		printVector(batch->avgX, prob[0]->num->cols, avgXFile);
+
 		fclose(avgXFile);
 	}
 
