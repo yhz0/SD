@@ -42,20 +42,20 @@ model = direct_model(optimizer_with_attributes(
     T[1:N,1:N] >= 0
 end)
 
-# @constraint(model, DIAGZERO[i=1:N], T[i,i] == 0)
-@constraint(model, SUPPLY[i=1:N], f[i]+sum(T[i,j] for j = 1:N if j != i) + e[i] - s[i] == 0)
+@constraint(model, con1[i=1:N], f[i]+sum(T[i,j] for j = 1:N if j != i) + e[i] - s[i] == 0)
 # RHS: d_i
-@constraint(model, DEM[i=1:N], f[i]+sum(T[j,i] for j = 1:N if j != i) + r[i] == 0)
+@constraint(model, con2[i=1:N], f[i]+sum(T[j,i] for j = 1:N if j != i) + r[i] == 0)
 # RHS: sum(d)
-@constraint(model, BAL, sum(r) + sum(q) == 0)
-@constraint(model, END_INVENTORY[i=1:N], e[i] + q[i] - s[i] == 0)
+@constraint(model, con3, sum(r) + sum(q) == 0)
+@constraint(model, con4[i=1:N], e[i] + q[i] - s[i] == 0)
+@constraint(model, con5[i=1:N], T[i,i] == 0)
 
 # It is recommended that you formulate the problem in Min
 @objective(model, Min, sum(h*e) + sum(c*T) + sum(p*r))
 
 # Need to specify which constraint/variable splits the first stage
 # and the second stage
-split_position = Position(SUPPLY[1], e[1])
+split_position = Position(con1[1], e[1])
 
 # Seed a random generator for generating the demands
 # This is for demo only. Use a larger seed.
@@ -68,8 +68,8 @@ rng = Random.MersenneTwister(1234)
 # If the randomness is on the RHS, replace it with "RHS"
 function mystoc()
     d = rand(rng, d_dist)
-    binding = [Position(DEM[i], "RHS") => d[i] for i in 1:N]
-    push!(binding, Position(BAL, "RHS") => sum(d))
+    binding = [Position(con2[i], "RHS") => d[i] for i in 1:N]
+    push!(binding, Position(con3, "RHS") => sum(d))
     return OneRealization(binding)
 end
 
