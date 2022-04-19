@@ -106,7 +106,7 @@ end
 @enum SDSolutionType IncumbentSolution=1 CompromiseSolution=2 AverageSolution=3
 
 # Get the decision from a given result, with selected type (Incumbent, Compromise, Average)
-function decision(var::VariableRef, type::SDSolutionType=Incumbent, result::SDResult)
+function decision(var::VariableRef, result::SDResult, type::SDSolutionType=Incumbent)
     if type == IncumbentSolution
         v = result.incumbentX[1]
     elseif type == AverageSolution
