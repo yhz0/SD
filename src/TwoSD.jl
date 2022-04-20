@@ -118,6 +118,25 @@ function decision(var::VariableRef, result::SDResult, type::SDSolutionType=Incum
     return v[index]
 end
 
+# Check if stoc_row and stoc_col are in the supported place,
+# relatively to split_index. The randomness should only appear in
+# T matrix, d second stage coefficients, r second stage RHS.
+# If not throw out a warning.
+function check_stoc_pos_validity(stoc_row::Int, stoc_col::Int, split_index_row::Int, split_index_col::Int)
+    if stoc_row == -1 && stoc_col >= split_index_col
+        # Second stage objective
+        return "RANDOM_OBJ"
+    elseif stoc_col == -1 && stoc_row >= split_index_row
+        # Second stage RHS
+        return "RANDOM_RHS"
+    elseif stoc_row >= split_index_row && stoc_col < split_index_col
+        # T Matrix
+        return "RANDOM_T"
+    else
+        @warn "Unsupported Random Position at ($stoc_row, $stoc_col). Check stageness."
+    end
+end
+
 function solve_sd(model::Model, split_position::Position,
     user_mean::AbstractVector{<:AbstractFloat}, mystoc::Function)
     # This is what build should do
@@ -144,7 +163,11 @@ function solve_sd(model::Model, split_position::Position,
 
     stoc_row = [p.row for p in index.(pattern)]
     stoc_col = [p.col for p in index.(pattern)]
-    stoc_mean = convert(Vector{Float64}, user_mean) # TODO: have the user define this?
+    stoc_mean = convert(Vector{Float64}, user_mean) # have the user define this
+
+    # Validity check: to ensure the randomness only appears in
+    # T matrix, d second stage coefficients, r second stage RHS
+    check_stoc_pos_validity.(stoc_row, stoc_col, split_index.row, split_index.col)
 
     # Make the user generation function to a c-func pointer
     mystoc_filler(observ_p::Ptr{Cdouble}) = filler_template(observ_p, mystoc, pattern_dict)
