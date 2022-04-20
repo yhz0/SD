@@ -68,7 +68,7 @@ int algo(oneProblem *orig, timeType *tim, stocType *stoc, string inputDir, strin
 		}
 
 		/* evaluate the optimal solution*/
-		if (config.EVAL_FLAG == 1)
+		if (config.EVAL_FLAG == 1 && !config.MULTIPLE_REP)
 			evaluate(sFile, stoc, prob, cell->subprob, cell->incumbX);
 
 		/* Save the batch details and build the compromise problem. */
