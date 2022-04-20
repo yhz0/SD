@@ -79,8 +79,9 @@ user_mean = copy(mu)
 push!(user_mean, sum(mu))
 
 # Call SD solver
-solve_sd(model, split_position, user_mean, mystoc)
+solution = solve_sd(model, split_position, user_mean, mystoc)
 
 # Now check the confidence interval in the output
 # and the decision in the output file under the same directory
 # in "incumbents.dat"
+decision.(s, Ref(solution), IncumbentSolution)
