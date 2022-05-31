@@ -106,8 +106,10 @@ int computeRHS(LPptr lp, numType *num, coordType *coord, sparseVector *bBar, spa
 
 	bomega.cnt = num->rvbOmCnt;	bomega.col = coord->rvbOmRows; bomega.val = obs + coord->rvOffset[0];
 
-	Comega.cnt = num->rvCOmCnt; Comega.col = coord->rvCOmCols + num->rvbOmCnt;
-	Comega.row = coord->rvCOmRows + num->rvbOmCnt; Comega.val = obs + coord->rvOffset[1];
+	Comega.cnt = num->rvCOmCnt;
+	Comega.col = coord->rvCOmCols;
+	Comega.row = coord->rvCOmRows;
+	Comega.val = obs + coord->rvOffset[1];
 
 	/* Start with the values of b(omega) -- both fixed and varying */
 	rhs = expandVector(bBar->val, bBar->col, bBar->cnt, num->rows);
@@ -176,8 +178,10 @@ int chgRHSwObserv(LPptr lp, numType *num, coordType *coord, vector observ, vecto
 
 	bomega.cnt = num->rvbOmCnt;	bomega.col = coord->rvbOmRows; bomega.val = observ;
 
-	Comega.cnt = num->rvCOmCnt; Comega.col = coord->rvCOmCols + num->rvbOmCnt;
-	Comega.row = coord->rvCOmRows + num->rvbOmCnt; Comega.val = observ + num->rvbOmCnt;
+	Comega.cnt = num->rvCOmCnt;
+	Comega.col = coord->rvCOmCols;
+	Comega.row = coord->rvCOmRows;
+	Comega.val = observ + num->rvbOmCnt;
 
 	if ( !(indices = (intvec) arr_alloc(num->rows, int)) )
 		errMsg("allocation", "chgRHSwObserv", "indices", 0);
