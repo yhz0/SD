@@ -110,9 +110,9 @@ function decision(var::VariableRef, result::SDResult, type::SDSolutionType=Incum
     if type == IncumbentSolution
         v = result.incumbentX[1]
     elseif type == AverageSolution
-        v = result.avgX
+        v = result.avgX[1]
     elseif type == CompromiseSolution
-        v = result.compromiseX
+        v = result.compromiseX[1]
     end
     index = result.col_map[var]
     return v[index]
