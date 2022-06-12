@@ -1,0 +1,5 @@
+TIME		toy3
+PERIODS
+	x1	obj1		TIME1
+	y	c3		TIME2
+ENDATA

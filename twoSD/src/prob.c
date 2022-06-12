@@ -339,25 +339,40 @@ probType **newProb(oneProblem *orig, stocType *stoc, timeType *tim, vector lb, d
 	/* decompose the stochastic elements of the problem. Go through the list of random variable and assign them to
 	 * appropriate parts (right-hand side and objective coefficients). */
 	for ( m = 0; m < stoc->numOmega; m++ ) {
-		if ( stoc->col[m] == -1 ) {
-			/* randomness in right-hand side */
-			t = 0;
-			while ( t < tim->numStages ) {
-				if ( stoc->row[m] < tim->row[t] )
-					break;
-				t++;
+
+		/* Count which "block" is the current random element in. 
+		 * If the randomness is in the RHS, or COST, the count is -1.
+		 * The result will be stored in the variable t for use later. */
+		int row_block = 0, col_block = 0;
+
+		while ( col_block < tim->numStages && stoc->col[m] >= tim->col[col_block]) {
+			col_block++;
+		}
+		col_block--;
+
+		while ( row_block < tim->numStages && stoc->row[m] >= tim->row[row_block]) {
+			row_block++;
+		}
+		row_block--;
+
+		/* Determine the stageness t. */
+		if (col_block == -1) {
+			/* Right hand side. */
+			t = row_block;
+		}
+		else if (row_block == -1) {
+			/* Cost coefficients. */
+			t = col_block;
 			}
-			t--;
+		else if (row_block == col_block + 1) {
+			/* Transfer matrix. Stageness depends on row. */
+			t = row_block;
 		}
 		else {
-			/* randomness in either objective function coefficients or the transfer matrix */
-			t = 0;
-			while ( t < tim->numStages ) {
-				if ( stoc->col[m] < tim->col[t] )
-					break;
-				t++;
-			}
-			t--;
+			/* Either in the W matrix, or this is in some other position. We throw a warning and set
+			 * t based on the column block number to be compatible with previous version. */
+			t = col_block;
+			errMsg("setup", "newProb", "unsupported or illegal randomness position.", 0);
 		}
 
 		if ( t == 0 ) {
@@ -397,7 +412,7 @@ probType **newProb(oneProblem *orig, stocType *stoc, timeType *tim, vector lb, d
 				prob[t]->coord->rvCOmRows = (intvec) arr_alloc(stoc->numOmega, int);
 				prob[t]->coord->rvOffset[1] = m;
 			}
-			prob[t]->coord->allRVCols[prob[t]->num->numRV] = stoc->col[m]-tim->col[t]+1;
+			prob[t]->coord->allRVCols[prob[t]->num->numRV] = stoc->col[m]-tim->col[t-1]+1;
 			prob[t]->coord->allRVRows[prob[t]->num->numRV] = stoc->row[m]-tim->row[t]+1;
 			prob[t]->num->rvCOmCnt++;
 			prob[t]->coord->rvCOmCols[prob[t]->num->rvCOmCnt] = prob[t]->coord->allRVCols[prob[t]->num->numRV];
