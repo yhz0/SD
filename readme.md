@@ -17,7 +17,7 @@ $$
 
 ### Important Assumptions on the Problem
 
-1. The problem should satisfy the __relatively complete recourse property__,  or alternatively, the user is able to assure that the optimal solution be in the relative interior of the first stage feasible region.
+1. The problem should satisfy the __relatively complete recourse property__.
 2. As a minimization problem, the second stage objective function must be uniformly bounded below for $\xi$ almost surely and for all $x$.
 3. The user need to supply a subroutine/function that generates independent realizations (samples) of the random LP coefficients each time it is called. Although the random variables do not have to be finite supported, the structure should not change. (see the Sampling Subroutine)
 
@@ -46,7 +46,7 @@ $$
     CPLEXDIR = /opt/ibm/ILOG/CPLEX_Studio201/cplex
     ```
 
-    If you installed CPLEX version other than 20.10, change the path  accordingly.
+    If you installed CPLEX version other than 20.10, change the path accordingly.
 
     (The following is for Windows build only.)
 
@@ -106,7 +106,7 @@ The variables and constraints are added using the usual `@constraint` and `@vari
 In addition to the usual requirements imposed by JuMP, we require the following conventions when defining the template:
 
 1. Each constraint and variable must have a name, or belongs to a named container (e.g. array of variables/constraints). The name of the variable/constraint/container must not conflict with existing identifiers.
-2. Both stages are required to be Minimization problem. A max-max problem can be converted into min-min problem by negating the signs of the cost coefficients in both stages.
+2. __Both stages are required to be Minimization problem.__ A max-max problem can be converted into min-min problem by negating the signs of the cost coefficients in both stages.
 3. The first stage variables (resp. constraints) must be defined before the second stage variables (resp. constraints).
 
 Note: It is also recommended that the constraints are written in the form of $a^\top x = b, a^\top x \leq b, a^\top x \geq b$. The variables are put on the left side of the equations, and the constant is on the right. This will make sure the signs will be correct when defining the random part.
@@ -270,4 +270,4 @@ solution = solve_sd(model, split_position, user_mean, mystoc)
 
 4. SD crashes on start with exit code 1.
 
-    Please form the problem in Min form. (Fix)
+    Please form the problem in Min form.
