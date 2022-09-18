@@ -36,9 +36,9 @@ void generateOmega(stocType *stoc, vector observ, double minVal, long long *seed
 	   !!! there is no boundary checking:
 	    the user is responsible for not doing out-of-bound
 	   memory writing. */
-	if( strstr(stoc->type, "EXT_GENERATOR") != NULL)
+	if( strcmp(stoc->type, "EXT_GENERATOR") == 0)
 	{
-		//printf("generateOmega EXT_GENERATOR stoc=%p, observ=%p\n", stoc, observ);
+		// printf("generateOmega EXT_GENERATOR stoc=%p, observ=%p\n", stoc, observ);
 		stoc->ext_generator(observ);
 		return;
 	}
