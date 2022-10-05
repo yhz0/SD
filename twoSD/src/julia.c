@@ -14,6 +14,7 @@ void check_env()
 	}
 }
 
+/* TODO: update readConfig_jl to load CUT_POOL_COUNT */
 int readConfig_jl(const char *config_path, const char* output_path) {
 	FILE 	*fptr;
 	char	line[2*BLOCKSIZE], comment[2*BLOCKSIZE];
@@ -26,7 +27,6 @@ int readConfig_jl(const char *config_path, const char* output_path) {
 		return 1;
 	}
 
-	/* TODO: wrap this */
 	const size_t MAX_PATH_LEN = 1024;
 	outputDir = malloc(sizeof(char) * MAX_PATH_LEN);
 	strcpy(outputDir, output_path);

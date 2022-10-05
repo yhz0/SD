@@ -175,6 +175,8 @@ int readConfig() {
 			fscanf(fptr, "%d", &config.BOOTSTRAP_REP);
 		else if (!(strcmp(line, "MULTIPLE_REP")))
 			fscanf(fptr, "%d", &config.MULTIPLE_REP);
+		else if (!strcmp(line, "CUT_POOL_COUNT"))
+			fscanf(fptr, "%d", &config.CUT_POOL_COUNT);
 		else if (!strcmp(line, "//"))
 			fgets(comment, 2*BLOCKSIZE, fptr);
 		else {

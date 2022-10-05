@@ -57,6 +57,8 @@ typedef struct{
 	double  PRE_EPSILON;		/* gap used for preliminary optimality test */
 
 	int 	MULTIPLE_REP;		/* When multiple replications are needed, set this to (M), else (0) */
+
+	int		CUTS_POOL_COUNT;		/* Number of epigraph variables. */
 }configType;
 
 typedef struct {
@@ -117,7 +119,9 @@ typedef struct {
 	vector      djM;                /* master reduced cost vector */
 
     int      	maxCuts;            /* maximum number of cuts to be used*/
-	cutsType    *cuts;              /* optimality cuts */
+	int			cutsPoolCount;		/* Number of epigraph variables cut pools. */
+	vector		cutsPoolWeights;	/* Weight of cut pools that appears in the objective. */
+	cutsType    **cutsPool;         /* pools of optimality cuts. */
 	cutsType    *fcuts;             /* feasibility cuts */
     cutsType 	*fcutsPool;			/* Pool of feasibility cuts */
     int			fUpdt[2];			/* coordinate in delta structure for which the updates have been carried out */

@@ -75,7 +75,8 @@ cellType *newCell(stocType *stoc, probType **prob, vector xk) {
 	cell->master = cell->subprob = NULL;
 	cell->candidX = cell->incumbX = NULL;
 	cell->piM = cell->djM = NULL;
-	cell->cuts = cell->fcuts = NULL;
+	cell->cutsPool = NULL;
+	cell->fcuts = NULL;
 	cell->lambda = NULL; cell->sigma = NULL; cell->delta = NULL; cell->omega = NULL;
 	cell->pi_ratio = NULL;
 
@@ -124,7 +125,14 @@ cellType *newCell(stocType *stoc, probType **prob, vector xk) {
 
 	/* lower bounding approximations held in cuts structure */
 	cell->maxCuts = config.CUT_MULT * prob[0]->num->cols + 3;
-	cell->cuts 	  = newCuts(cell->maxCuts);
+	
+	/* Allocate and populate all the cut pools. */
+	cell->cutsPoolCount = config.CUTS_POOL_COUNT;
+	cell->cutsPool = arr_alloc(config.CUTS_POOL_COUNT, cutsType *);
+
+	int i;
+	for (i = 0; i < cell->cutsPoolCount; ++i)
+		cell->cutsPool[i] = newCuts(cell->maxCuts);
 
 	/* solution parts of the cell */
 	if ( !(cell->djM = (vector) arr_alloc(prob[0]->num->cols + 2, double)) )
@@ -193,7 +201,7 @@ void freeConfig() {
 }//END freeConfig()
 
 int cleanCellType(cellType *cell, probType *prob, vector xk) {
-	int cnt;
+	int cnt, i;
 
 	/* constants and arrays */
 	cell->k = 0;
@@ -219,7 +227,12 @@ int cleanCellType(cellType *cell, probType *prob, vector xk) {
 	cell->normDk 	= 0.0;
 
 	/* oneProblem structures and solver elements */
-	for ( cnt = prob->num->rows+cell->cuts->cnt+cell->fcuts->cnt-1; cnt >= prob->num->rows; cnt-- )
+	/* Find total number of optimality cuts stored in the master. */
+	int optimality_cuts_cnt = 0;
+	for (i = 0; i < cell->cutsPoolCount; i++)
+		optimality_cuts_cnt += cell->cutsPool[i]->cnt;
+
+	for ( cnt = prob->num->rows + optimality_cuts_cnt + cell->fcuts->cnt-1; cnt >= prob->num->rows; cnt-- )
 		if (  removeRow(cell->master->lp, cnt, cnt) ) {
 			errMsg("solver", "cleanCellType", "failed to remove a row from master problem", 0);
 			return 1;
@@ -231,7 +244,8 @@ int cleanCellType(cellType *cell, probType *prob, vector xk) {
 	}
 
 	/* cuts */
-	if (cell->cuts) freeCutsType(cell->cuts, TRUE);
+	for (i = 0; i < cell->cutsPoolCount; i++)
+		if (cell->cutsPool[i]) freeCutsType(cell->cutsPool[i], TRUE);
 	if (cell->fcuts) freeCutsType(cell->fcuts, TRUE);
 	if (cell->fcutsPool) freeCutsType(cell->fcutsPool, TRUE);
 	cell->feasCnt 		= 0;
@@ -269,14 +283,15 @@ int cleanCellType(cellType *cell, probType *prob, vector xk) {
 
 
 void freeCellType(cellType *cell) {
-
+	int i;
 	if ( cell ) {
 		if (cell->master) freeOneProblem(cell->master);
 		if (cell->candidX) mem_free(cell->candidX);
 		if (cell->incumbX) mem_free(cell->incumbX);
 		if (cell->piM) mem_free(cell->piM);
 		if (cell->djM) mem_free(cell->djM);
-		if (cell->cuts) freeCutsType(cell->cuts, FALSE);
+		for (i = 0; i < cell->cutsPoolCount; i++)
+			if (cell->cutsPool[i]) freeCutsType(cell->cutsPool[i], FALSE);
 		if (cell->fcuts) freeCutsType(cell->fcuts, FALSE);
 		if (cell->fcutsPool) freeCutsType(cell->fcutsPool, FALSE);
 		if (cell->delta) freeDeltaType(cell->delta, cell->lambda->cnt, cell->omega->cnt, FALSE);

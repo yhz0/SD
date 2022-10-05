@@ -130,3 +130,6 @@ SCAN_LEN 128
 
 // Number of replications
 MULTIPLE_REP 0
+
+// Number of cut pools / epigraph variables
+CUTS_POOL_COUNT 5
