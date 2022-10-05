@@ -56,8 +56,8 @@ int setupAlgo(oneProblem *orig, stocType *stoc, timeType *tim, probType ***prob,
 		return 1;
 	}
 
-	if ( config.NUM_REPS > 1 )
-		(*batch)  = newBatchSummary((*prob)[0], config.NUM_REPS);
+	// if ( config.NUM_REPS > 1 )
+	// 	(*batch)  = newBatchSummary((*prob)[0], config.NUM_REPS);
 
 	mem_free(lb);
 	return 0;

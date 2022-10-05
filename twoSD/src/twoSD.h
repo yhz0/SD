@@ -213,11 +213,11 @@ void empiricalDistribution(omegaType *omega, int *cdf);
 void resampleOmega(intvec cdf, intvec observ, int numSamples);
 
 /* compromise.c */
-int buildCompromise(probType *prob, cellType *cell, batchSummary *batch);
-int solveCompromise(probType *prob, batchSummary *batch);
-int addBatchEquality (probType *prob, batchSummary *batch);
-batchSummary *newBatchSummary(probType *prob, int numBatch);
-void freeBatchType(batchSummary *batch);
+// int buildCompromise(probType *prob, cellType *cell, batchSummary *batch);
+// int solveCompromise(probType *prob, batchSummary *batch);
+// int addBatchEquality (probType *prob, batchSummary *batch);
+// batchSummary *newBatchSummary(probType *prob, int numBatch);
+// void freeBatchType(batchSummary *batch);
 
 /* evaluate.c */
 int evaluate(FILE *soln, stocType *stoc, probType **prob, oneProblem *subprob, vector Xvect);

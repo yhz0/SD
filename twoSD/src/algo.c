@@ -72,55 +72,55 @@ int algo(oneProblem *orig, timeType *tim, stocType *stoc, string inputDir, strin
 			evaluate(sFile, stoc, prob, cell->subprob, cell->incumbX);
 
 		/* Save the batch details and build the compromise problem. */
-		if ( config.MULTIPLE_REP ) {
-			buildCompromise(prob[0], cell, batch);
-		}
+		// if ( config.MULTIPLE_REP ) {
+		// 	buildCompromise(prob[0], cell, batch);
+		// }
 	}
 
-	if ( config.MULTIPLE_REP ) {
-		/* Solve the compromise problem. */
-		if ( solveCompromise(prob[0], batch)) {
-			errMsg("algorithm", "algo", "failed to solve the compromise problem", 0);
-			goto TERMINATE;
-		}
+	// if ( config.MULTIPLE_REP ) {
+	// 	/* Solve the compromise problem. */
+	// 	if ( solveCompromise(prob[0], batch)) {
+	// 		errMsg("algorithm", "algo", "failed to solve the compromise problem", 0);
+	// 		goto TERMINATE;
+	// 	}
 
-		fprintf(sFile, "\n====================================================================================================================================\n");
-		fprintf(sFile, "\n----------------------------------------- Compromise solution --------------------------------------\n\n");
+	// 	fprintf(sFile, "\n====================================================================================================================================\n");
+	// 	fprintf(sFile, "\n----------------------------------------- Compromise solution --------------------------------------\n\n");
 
-		fprintf(stdout, "\n================================\n");
-		fprintf(stdout, "----- Compromise solution ------\n");
+	// 	fprintf(stdout, "\n================================\n");
+	// 	fprintf(stdout, "----- Compromise solution ------\n");
 
-		/* Evaluate the compromise solution */
-		evaluate(sFile, stoc, prob, cell->subprob, batch->compromiseX);
+	// 	/* Evaluate the compromise solution */
+	// 	evaluate(sFile, stoc, prob, cell->subprob, batch->compromiseX);
 
-		fprintf(sFile, "\n------------------------------------------- Average solution ---------------------------------------\n\n");
+	// 	fprintf(sFile, "\n------------------------------------------- Average solution ---------------------------------------\n\n");
 
-		fprintf(stdout, "\n================================\n");
-		fprintf(stdout, "----- Average solution ------\n");
-		/* Evaluate the average solution */
-		evaluate(sFile, stoc, prob, cell->subprob, batch->avgX);
+	// 	fprintf(stdout, "\n================================\n");
+	// 	fprintf(stdout, "----- Average solution ------\n");
+	// 	/* Evaluate the average solution */
+	// 	evaluate(sFile, stoc, prob, cell->subprob, batch->avgX);
 
-		/* Write the average solution and compromise solution. */
-		FILE *compXFile, *avgXFile;
-		compXFile = openFile(outputDir, "compromiseX.dat", "w");
+	// 	/* Write the average solution and compromise solution. */
+	// 	FILE *compXFile, *avgXFile;
+	// 	compXFile = openFile(outputDir, "compromiseX.dat", "w");
 
-		// printVectorWName(batch->compromiseX, orig->cname, prob[0]->num->cols, compXFile);
-		printVector(batch->compromiseX, prob[0]->num->cols, compXFile);
-		fclose(compXFile);
+	// 	// printVectorWName(batch->compromiseX, orig->cname, prob[0]->num->cols, compXFile);
+	// 	printVector(batch->compromiseX, prob[0]->num->cols, compXFile);
+	// 	fclose(compXFile);
 
-		avgXFile = openFile(outputDir, "avgX.dat", "w");
-		// printVectorWName(batch->avgX, orig->cname, prob[0]->num->cols, avgXFile);
-		printVector(batch->avgX, prob[0]->num->cols, avgXFile);
+	// 	avgXFile = openFile(outputDir, "avgX.dat", "w");
+	// 	// printVectorWName(batch->avgX, orig->cname, prob[0]->num->cols, avgXFile);
+	// 	printVector(batch->avgX, prob[0]->num->cols, avgXFile);
 
-		fclose(avgXFile);
-	}
+	// 	fclose(avgXFile);
+	// }
 
 	fclose(sFile); fclose(iFile);
 	printf("\nSuccessfully completed two-stage stochastic decomposition algorithm.\n");
 
 	/* free up memory before leaving */
 	if (meanSol) mem_free(meanSol);
-	freeBatchType(batch);
+	// freeBatchType(batch);
 	freeCellType(cell);
 	freeProbType(prob, 2);
 
@@ -128,7 +128,8 @@ int algo(oneProblem *orig, timeType *tim, stocType *stoc, string inputDir, strin
 
 	TERMINATE:
 	if(meanSol) mem_free(meanSol);
-	freeBatchType(batch);
+	// freeBatchType(batch);
+
 	freeCellType(cell);
 	freeProbType(prob, 2);
 	return 1;
