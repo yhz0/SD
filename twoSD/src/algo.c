@@ -136,14 +136,19 @@ int algo(oneProblem *orig, timeType *tim, stocType *stoc, string inputDir, strin
 }//END algo()
 
 int solveCell(stocType *stoc, probType **prob, cellType *cell) {
-	vector 	observ;
+	vector*	observ;
 	int		m, omegaIdx, candidCut;
 	BOOL 	newOmegaFlag;
 	clock_t	tic;
+	int		poolIdx;
 
 	/* -+-+-+-+-+-+-+-+-+-+-+-+-+-+- Main Algorithm -+-+-+-+-+-+-+-+-+-+-+-+-+-+- */
-	if ( !(observ = (vector) arr_alloc(stoc->numOmega + 1, double)) )
+
+	if ( !(observ = (vector *) arr_alloc(cell->cutsPoolCount, vector*)) )
 		errMsg("allocation", "solveCell", "observ", 0);
+	for (poolIdx = 0; poolIdx < cell->cutsPoolCount; poolIdx++)
+		if ( !(observ[poolIdx] = (vector) arr_alloc(stoc->numOmega + 1, double)) )
+			errMsg("allocation", "solveCell", "observ omega", 0);
 
 	/******* 0. Initialization: The algorithm begins by solving the master problem as a QP *******/
 	while (cell->optFlag == FALSE && cell->k < config.MAX_ITER) {
@@ -162,13 +167,17 @@ int solveCell(stocType *stoc, probType **prob, cellType *cell) {
 			break;
 
 		/******* 2. Generate new observation, and add it to the set of observations *******/
-		/* (a) Use the stoc file to generate observations */
-		generateOmega(stoc, observ, config.TOLERANCE, &config.RUN_SEED[0]);
+		for (poolIdx = 0; poolIdx < cell->cutsPoolCount; poolIdx++)
+		{
+			/* (a) Use the stoc file to generate observations */
+			generateOmega(stoc, observ[poolIdx], config.TOLERANCE, &config.RUN_SEED[0]);
 
-		/* (b) Since the problem already has the mean values on the right-hand side, remove it from the original observation */
-		for ( m = 0; m < stoc->numOmega; m++ )
-			observ[m] -= stoc->mean[m];
+			/* (b) Since the problem already has the mean values on the right-hand side, remove it from the original observation */
+			for ( m = 0; m < stoc->numOmega; m++ )
+				observ[poolIdx][m] -= stoc->mean[m];
+		}
 
+		/* TODO: figure out what is this? */
 		/* (d) update omegaType with the latest observation. If solving with incumbent then this update has already been processed. */
 		omegaIdx = calcOmega(observ - 1, 0, prob[1]->num->numRV, cell->omega, &newOmegaFlag, config.TOLERANCE);
 

@@ -168,7 +168,7 @@
 // 	coef = (vector) arr_alloc(prob->num->rows+1, double);
 // 	for (i = 0; i < prob->num->rows; i++) {
 // 		coef[i+1]  = prob->sp->rhsx[i];
-// 		indices[i] = i+rOffset1;\
+// 		indices[i] = i+rOffset1;
 // 	}
 
 // 	/* b - A * xbar */

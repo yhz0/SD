@@ -17,7 +17,7 @@ int resolveInfeasibility(probType **prob, cellType *cell, BOOL *newOmegaFlag, in
 int formFeasCut(probType *prob, cellType *cell);
 int updtFeasCutPool(numType *num, coordType *coord, cellType *cell);
 int checkFeasCutPool(cellType *cell, int lenX);
-int addCut2Pool(cellType *cell, oneCut *cut, int lenX, double lb, BOOL feasCut);
+int addCut2Pool(cellType *cell, cutsType *pool, oneCut *cut, int lenX, double lb, BOOL feasCut);
 
 int formSDCut(probType **prob, cellType *cell, vector Xvect, int omegaIdx, BOOL *newOmegaFlag, double lb) {
 	oneCut 	*cut;
@@ -79,6 +79,7 @@ int formSDCut(probType **prob, cellType *cell, vector Xvect, int omegaIdx, BOOL 
 		errMsg("algorithm", "formSDCut", "failed to add the new cut to cutsType structure", 0);
 		return -1;
 	}
+	/* TODO: rewrite this. */
 	if ( addCut2Master(cell->master, cut, cell->incumbX, prob[0]->num->cols) ) {
 		errMsg("algorithm", "formSDCut", "failed to add the new cut to master problem", 0);
 		return -1;
@@ -272,39 +273,53 @@ cutsType *newCuts(int maxCuts) {
 	return cuts;
 }//END newCuts
 
-/* This function will remove the oldest cut whose corresponding dual variable is zero (thus, a cut which was slack in last solution). */
+/* This function will remove the oldest cut from each cut pool
+   whose corresponding dual variable is zero across all pools
+   (thus all the cuts corresponding to that index were slack in last solution). */
 int reduceCuts(cellType *cell, vector candidX, vector pi, int betaLen, double lb) {
 	double height, minHeight;
-	int minObs, oldestCut,idx;
+	double cut_dual;
+	int minObs, oldestCut, cut_idx, pool_idx;
 
 	minObs 	  = cell->k;
-	oldestCut = cell->cuts->cnt;
+	oldestCut = cell->cutsPool[0]->cnt;
 
 	/* identify the oldest loose cut */
-	for (idx = 0; idx < cell->cuts->cnt; idx++) {
-		if ( idx == cell->iCutIdx || cell->cuts->vals[idx]->rowNum < 0)
+	for (cut_idx = 0; cut_idx < cell->cutsPool[0]->cnt; cut_idx++) {
+		if ( cut_idx == cell->iCutIdx || cell->cutsPool[0]->vals[cut_idx]->rowNum < 0)
 			/* avoid dropping incumbent cut and newly added cuts */
 			continue;
 
-		if (cell->cuts->vals[idx]->numSamples < minObs && DBL_ABS(pi[cell->cuts->vals[idx]->rowNum + 1]) <= config.TOLERANCE ) {
-			minObs = cell->cuts->vals[idx]->numSamples;
-			oldestCut = idx;
+		/* Go through each pool to see if all are slack. */
+		BOOL all_slack = TRUE;
+
+		for (pool_idx = 0; pool_idx < cell->cutsPoolCount; pool_idx++) {
+			cut_dual = pi[cell->cutsPool[pool_idx]->vals[cut_idx]->rowNum + 1];
+			if (cell->cutsPool[pool_idx]->vals[cut_idx]->numSamples < minObs
+			&& DBL_ABS(cut_dual) <= config.TOLERANCE ) {
+				all_slack = FALSE;
+				break;
+			}
+		}
+		if (all_slack) {
+			minObs = cell->cutsPool[0]->vals[cut_idx]->numSamples;
+			oldestCut = cut_idx;
 		}
 	}
 
 	/* if the oldest loose cut is the most recently added cut, then the cut with minimium cut height will be dropped */
-	if ( oldestCut == cell->cuts->cnt ) {
-		minHeight = cutHeight(cell->cuts->vals[0], cell->k, candidX, betaLen, lb);
+	if ( oldestCut == cell->cutsPool[0]->cnt ) {
+		minHeight = cutHeight(cell->cutsPool[0]->vals[0], cell->k, candidX, betaLen, lb);
 		oldestCut = 0;
 
-		for (idx = 1; idx < cell->cuts->cnt; idx++) {
-			if (idx == cell->iCutIdx)
+		for (cut_idx = 1; cut_idx < cell->cutsPool[0]->cnt; cut_idx++) {
+			if (cut_idx == cell->iCutIdx)
 				continue;
 
-			height = cutHeight(cell->cuts->vals[idx], cell->k, candidX, betaLen, lb);
+			height = cutHeight(cell->cutsPool[0]->vals[cut_idx], cell->k, candidX, betaLen, lb);
 			if (height < minHeight) {
 				minHeight = height;
-				oldestCut = idx;
+				oldestCut = cut_idx;
 			}
 		}
 	}
@@ -323,37 +338,44 @@ int reduceCuts(cellType *cell, vector candidX, vector pi, int betaLen, double lb
  * below it are decremented. */
 int dropCut(cellType *cell, int cutIdx) {
 	int idx, deletedRow;
+	int poolIdx;
+	cutsType* cuts;
 
-	deletedRow = cell->cuts->vals[cutIdx]->rowNum;
-	/* Get rid of the indexed cut on the solver */
-	if (  removeRow(cell->master->lp, deletedRow, deletedRow) ) {
-		printf("stopped at %d",cell->k);
-		errMsg("solver", "dropCut", "failed to remove a row from master problem", 0);
-		return 1;
+	for (poolIdx = 0; poolIdx < cell-> cutsPoolCount; poolIdx++) {
+		/* Choose the pool to be processed. */
+		cuts = cell -> cutsPool[poolIdx];
+
+		deletedRow = cuts->vals[cutIdx]->rowNum;
+		/* Get rid of the indexed cut on the solver */
+		if (  removeRow(cell->master->lp, deletedRow, deletedRow) ) {
+			printf("stopped at %d",cell->k);
+			errMsg("solver", "dropCut", "failed to remove a row from master problem", 0);
+			return 1;
+		}
+		freeOneCut(cuts->vals[cutIdx]);
+
+		/* move the last cut to the deleted cut's position (structure) */
+		cuts->vals[cutIdx] = cuts->vals[--cuts->cnt];
+
+		/* if the swapped cut happens to be the incumbent cut, then update its index */
+		if ( cell->iCutIdx == cuts->cnt )
+			cell->iCutIdx = cutIdx;
+
+		/* Decrement the row number of all optimality cuts which were added after the cut that was just dropped */
+		for (idx = 0; idx < cuts->cnt; idx++) {
+			if (cuts->vals[idx]->rowNum > deletedRow)
+				--cuts->vals[idx]->rowNum;
+		}
+
+		/* Decrement the row number of all feasibility cuts which were added after the cut that was just dropped */
+		for (idx = 0; idx < cell->fcuts->cnt; idx++) {
+			if (cell->fcuts->vals[idx]->rowNum > deletedRow)
+				--cell->fcuts->vals[idx]->rowNum;
+		}
+
+		/* decrease the number of rows on solver */
+		cell->master->mar--;
 	}
-	freeOneCut(cell->cuts->vals[cutIdx]);
-
-	/* move the last cut to the deleted cut's position (structure) */
-	cell->cuts->vals[cutIdx] = cell->cuts->vals[--cell->cuts->cnt];
-
-	/* if the swapped cut happens to be the incumbent cut, then update its index */
-	if ( cell->iCutIdx == cell->cuts->cnt )
-		cell->iCutIdx = cutIdx;
-
-	/* Decrement the row number of all optimality cuts which were added after the cut that was just dropped */
-	for (idx = 0; idx < cell->cuts->cnt; idx++) {
-		if (cell->cuts->vals[idx]->rowNum > deletedRow)
-			--cell->cuts->vals[idx]->rowNum;
-	}
-
-	/* Decrement the row number of all feasibility cuts which were added after the cut that was just dropped */
-	for (idx = 0; idx < cell->fcuts->cnt; idx++) {
-		if (cell->fcuts->vals[idx]->rowNum > deletedRow)
-			--cell->fcuts->vals[idx]->rowNum;
-	}
-
-	/* decrease the number of rows on solver */
-	cell->master->mar--;
 
 	return 0;
 }//END dropCut()
@@ -448,14 +470,19 @@ int resolveInfeasibility(probType **prob, cellType *cell, BOOL *newOmegaFlag, in
 }//END resolveInfeasibility()
 
 int formFeasCut(probType *prob, cellType *cell) {
+	int totalCutsCount = 0, poolIdx;
 
 	/* add new feasibility cuts to the cut pool */
 	updtFeasCutPool(prob->num, prob->coord, cell);
 
 	/* identify, in the feasibility cut pool, cuts that are violated by the input solution xk */
 	checkFeasCutPool(cell, prob->num->prevCols);
-	cell->piM = (vector) mem_realloc(cell->piM, prob->num->prevRows+cell->cuts->cnt+cell->fcuts->cnt);
 
+	/* Count how many optimality cuts are there in total. */
+	for (poolIdx = 0; poolIdx < cell ->cutsPoolCount; poolIdx++)
+		totalCutsCount += cell->cutsPool[poolIdx]->cnt;
+
+	cell->piM = (vector) mem_realloc(cell->piM, prob->num->prevRows + totalCutsCount + cell->fcuts->cnt);
 	return 0;
 }//END formFeasCut()
 
@@ -484,7 +511,7 @@ int updtFeasCutPool(numType *num, coordType *coord, cellType *cell) {
 				for (c = 1; c <= num->rvCOmCnt; c++)
 					cut->beta[coord->rvCols[c]] += cell->delta->vals[lambdaIdx][obs].piC[c];
 
-				addCut2Pool(cell, cut, num->prevCols, 0.0, TRUE);
+				addCut2Pool(cell, NULL, cut, num->prevCols, 0.0, TRUE);
 			}
 		}
 	cell->fUpdt[1] = cell->omega->cnt;
@@ -507,7 +534,7 @@ int updtFeasCutPool(numType *num, coordType *coord, cellType *cell) {
 				for (c = 1; c <= num->rvCOmCnt; c++)
 					cut->beta[coord->rvCols[c]] += cell->delta->vals[lambdaIdx][obs].piC[c];
 
-				addCut2Pool(cell, cut, num->prevCols, 0.0, TRUE);
+				addCut2Pool(cell, NULL, cut, num->prevCols, 0.0, TRUE);
 			}
 		}
 	cell->fUpdt[0] = cell->basis->cnt;
@@ -608,11 +635,16 @@ void freeCutsType(cutsType *cuts, BOOL partial) {
 
 /* The subroutine adds the newly formed cut to the cutsType structure. For the optimality cuts, if there is no room in the cutsType structure
  * then the reduceCuts() subroutine is invoked to remove the 'loose' and 'old' cuts. For the feasibility cuts, we check if the new cut is a
- * duplicate of existing cut before it is added to the pool. */
-int addCut2Pool(cellType *cell, oneCut *cut, int lenX, double lb, BOOL feasCut) {
+ * duplicate of existing cut before it is added to the pool.
+ * The argument pool denotes which cut pool to add to. If it is feasibility cut, it should be NULL. */
+int addCut2Pool(cellType *cell, cutsType* pool, oneCut *cut, int lenX, double lb, BOOL feasCut) {
 	int	cnt;
 
 	if ( feasCut ) {
+		if (pool != NULL) {
+			errMsg("algorithm", "addCut2Pool", "Feasibility cut should leave pool to be NULL", );
+			return -1;
+		}
 		/* If we are adding a feasibility cut, make sure there are no duplicates */
 		for (cnt = 0; cnt < cell->fcutsPool->cnt; cnt++) {
 			if (DBL_ABS(cut->alpha - cell->fcutsPool->vals[cnt]->alpha) < config.TOLERANCE) {
@@ -627,7 +659,7 @@ int addCut2Pool(cellType *cell, oneCut *cut, int lenX, double lb, BOOL feasCut) 
 		return cell->fcutsPool->cnt++;
 	}
 	else {
-		if (cell->cuts->cnt >= cell->maxCuts) {
+		if (pool->cnt >= cell->maxCuts) {
 			/* If we are adding optimality cuts, check to see if there is room for the latest cut. If there is not,
 			 * then make room by reducing the cuts from the structure. */
 			if( reduceCuts(cell, cell->candidX, cell->piM, lenX, lb) < 0 ) {
@@ -635,8 +667,8 @@ int addCut2Pool(cellType *cell, oneCut *cut, int lenX, double lb, BOOL feasCut) 
 				return -1;
 			}
 		}
-		cell->cuts->vals[cell->cuts->cnt] = cut;
-		return cell->cuts->cnt++;
+		pool->vals[pool->cnt] = cut;
+		return pool->cnt++;
 	}
 
 }//END addCut()
